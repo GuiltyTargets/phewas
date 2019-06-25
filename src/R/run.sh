@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-echo Downloading the files
-R CMD BATCH synapse.r
-
 echo Calculating the differential gene expression
 echo BM10
 R CMD BATCH DiffExpr_BM10.R
