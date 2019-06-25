@@ -3,12 +3,12 @@
 """Generates an adjacency file for the PPI network from the STRING database."""
 
 from typing import Dict
+
 import pandas as pd
 import psycopg2
 
 
 class StringAssembler:
-
     def __init__(self):
         self.adj_file = 'string.edgelist'
         self.ppi_url = f'https://stringdb-static.org/download/' \
@@ -27,8 +27,8 @@ class StringAssembler:
         self._dir = ""
 
     def create_adj_file(self):
-        """
-        Creates a csv file containing the protein interactions and the score.
+        """Create a csv file containing the protein interactions and the score.
+
         Requires the download from the protein network data for the organism Homo Sapiens from
         https://string-db.org/cgi/download.pl?sessionId=xoIrOw0ShV9o&species_text=Homo+sapiens
 
@@ -49,9 +49,9 @@ class StringAssembler:
         df[self.out_cols].to_csv(self.adj_file, sep='\t', header=False, index=False)
 
     def _get_ensembl_id_to_symbol_converter(self) -> Dict:
-        """
-        Get a converter from Ensembl Id (ENSPxxx) to protein symbol. Requires previous
-        installation of PostGreSQL and to import the database schema ``items''
+        """Get a converter from Ensembl Id (ENSPxxx) to protein symbol.
+
+        Requires previous installation of PostGreSQL and to import the database schema ``items''
         from STRING for organism Homo Sapiens (download at
         https://string-db.org/cgi/download.pl?sessionId=xoIrOw0ShV9o&species_text=Homo+sapiens).
 
@@ -65,7 +65,7 @@ class StringAssembler:
 
         data3 = pd.read_sql(sql_command, self.conn)
 
-        return {x: y for x, y in data3[['protein_external_id', 'preferred_name']].values}
+        return dict(data3[['protein_external_id', 'preferred_name']].values)
 
 
 if __name__ == '__main__':
