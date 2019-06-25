@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 
-"""Utility functions to run the algorithm"""
+"""Utility functions to run the algorithm."""
 
 import os
 from typing import Dict, List, Optional
 
 import mygene
+import pandas as pd
 from networkx import DiGraph
 from opentargets import OpenTargetsClient
-import pandas as pd
-from pybel.dsl import gene, protein, rna, BaseEntity
+from pybel.dsl import BaseEntity, gene, protein, rna
 
-from .constants import disease_ids_efo, disease_abr, data_dir, ot_file
+from .constants import data_dir, disease_abr, disease_ids_efo, ot_file
 
 
 def get_base_dir(basedir, path):
@@ -40,11 +40,8 @@ def get_labels_file(basedir, path):
 
 def add_disease_attribute(graph: DiGraph, att_mappings: Dict):
     """Add the phenotypes to the Base Entities as attributes."""
-    for node in graph.nodes:
-        if ((isinstance(node, protein) or
-             isinstance(node, rna) or
-             isinstance(node, gene)) and
-                node.name in att_mappings):
+    for node in graph:
+        if isinstance(node, (protein, rna, gene) and node.name in att_mappings):
             graph.nodes[node]['phenotypes'] = [phtype for _, phtype in att_mappings[node.name]]
 
 
@@ -52,14 +49,14 @@ def write_adj_file_attribute(graph, filepath: str, att_mappings: Dict, pred_mapp
     """Write an adjacency file from the attribute graph."""
     if pred_mapping is None:
         pred_mapping = dict()
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w') as file:
         for node in graph.nodes:
             line = f"{node}"
-            if 'phenotypes' in graph.nodes[node]:  # "There are diseases in the node":
+            if 'phenotypes' in graph.nodes[node]:  # There are diseases in the node (gene)
                 line += f" {' '.join(str(att_mappings[phe]) for phe in graph.nodes[node]['phenotypes'])}"
-            if 'label' in graph.nodes[node] and graph.nodes[node]['label'] in pred_mapping:
+            if 'label' in graph.nodes[node] and graph.nodes[node]['label'] in pred_mapping:  # predicate node
                 line += f" {pred_mapping[graph.nodes[node]['label']]}"
-            print(line, file=f)
+            print(line, file=file)
 
 
 # Copied from GuiltyTargets/reproduction
@@ -96,7 +93,11 @@ def parse_gene_list(path: str, graph: DiGraph, anno_type: str = "name") -> list:
     genes = set(genes)
 
     # get those genes which are in the network
-    symbols = [node['name'] for node in graph.nodes if isinstance(node, BaseEntity) and 'name' in node]
+    symbols = [
+        node['name']
+        for node in graph.nodes
+        if isinstance(node, BaseEntity) and 'name' in node
+    ]
 
     return list(genes.intersection(symbols))
 

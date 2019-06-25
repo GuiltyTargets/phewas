@@ -1,2 +1,0 @@
-- Open synapse.r and change the username and password
-- Run run.sh or run.bat
