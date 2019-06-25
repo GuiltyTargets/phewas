@@ -3,7 +3,7 @@
 """Utility functions to run the algorithm"""
 
 import os
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import mygene
 from networkx import DiGraph
@@ -12,6 +12,30 @@ import pandas as pd
 from pybel.dsl import gene, protein, rna, BaseEntity
 
 from .constants import disease_ids_efo, disease_abr, data_dir, ot_file
+
+
+def get_base_dir(basedir, path):
+    return os.path.join(basedir, path)
+
+
+def get_local_bel_file(basedir, path):
+    dir_ = get_base_dir(basedir, path)
+    return os.path.join(dir_, path + '.bel')
+
+
+def get_struct_file(basedir, path):
+    dir_ = get_base_dir(basedir, path)
+    return os.path.join(dir_, path + '_graph.adjlist')
+
+
+def get_attr_file(basedir, path):
+    dir_ = get_base_dir(basedir, path)
+    return os.path.join(dir_, path + '_na.adjlist')
+
+
+def get_labels_file(basedir, path):
+    dir_ = get_base_dir(basedir, path)
+    return os.path.join(dir_, 'labels_maped.txt')
 
 
 def add_disease_attribute(graph: DiGraph, att_mappings: Dict):
@@ -24,14 +48,18 @@ def add_disease_attribute(graph: DiGraph, att_mappings: Dict):
             graph.nodes[node]['phenotypes'] = [phtype for _, phtype in att_mappings[node.name]]
 
 
-def write_adj_file_attribute(graph, filepath: str, att_mappings: Dict):
+def write_adj_file_attribute(graph, filepath: str, att_mappings: Dict, pred_mapping: Optional[Dict] = None):
     """Write an adjacency file from the attribute graph."""
+    if pred_mapping is None:
+        pred_mapping = dict()
     with open(filepath, 'w') as f:
         for node in graph.nodes:
+            line = f"{node}"
             if 'phenotypes' in graph.nodes[node]:  # "There are diseases in the node":
-                print(f"{node} {' '.join(str(att_mappings[phe]) for phe in graph.nodes[node]['phenotypes'])}", file=f)
-            else:
-                print(f"{node}", file=f)
+                line += f" {' '.join(str(att_mappings[phe]) for phe in graph.nodes[node]['phenotypes'])}"
+            if 'label' in graph.nodes[node] and graph.nodes[node]['label'] in pred_mapping:
+                line += f" {pred_mapping[graph.nodes[node]['label']]}"
+            print(line, file=f)
 
 
 # Copied from GuiltyTargets/reproduction

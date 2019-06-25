@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 from collections import defaultdict
 
 from GAT2VEC.evaluation.classification import Classification
@@ -71,7 +72,7 @@ class PULearn(Classification):
             for train_idx, test_idx in rskf.split(embedding, self.labels):
                 X_train, X_test, Y_train, Y_test = self._get_split(embedding, test_idx, train_idx)
                 pred, probs = self.get_biased_predictions(clf, X_train, X_test, Y_train, cost_p, cost_n)
-                print({0: len([_ for x in pred if x == 0]), 1: len([_ for x in pred if x == 1])})
+                # print(f"TR {i} { {0: len([1 for x in pred if x == 0]), 1: len([1 for x in pred if x == 1])}}")
                 results["TR"].append(i)
                 results["accuracy"].append(accuracy_score(Y_test, pred))
                 results["f1micro"].append(f1_score(Y_test, pred, average='micro'))
@@ -80,6 +81,7 @@ class PULearn(Classification):
                     results["auc"].append(roc_auc_score(Y_test, probs[:, 1]))
                 else:
                     results["auc"].append(0)
+                print(f"TR {i}")
         return results
 
     @staticmethod
