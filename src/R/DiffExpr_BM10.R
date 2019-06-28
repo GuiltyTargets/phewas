@@ -69,6 +69,7 @@ res$entrez <- mapIds(org.Hs.eg.db,
                      keytype="ENSEMBL",
                      multiVals="list")
 
-resDF <- as.data.frame(res)
-write.csv(resDF, file = paste(home.folder, "DifferentialExpression_BM10.csv", sep=""))
+resDF <- as.data.frame(res
+write.table(resDF, file=paste(home.folder, "DifferentialExpression_BM10.csv", sep=""), sep=";", dec=".")
+
 
