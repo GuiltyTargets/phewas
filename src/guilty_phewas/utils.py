@@ -6,7 +6,6 @@ import os
 from typing import Dict, List, Optional
 
 import bio2bel_phewascatalog
-from guiltytargets.ppi_network_annotation import parse_dge
 from guiltytargets.ppi_network_annotation.model.gene import Gene
 import mygene
 import pandas as pd
@@ -14,7 +13,7 @@ import networkx as nx
 from opentargets import OpenTargetsClient
 from pybel.dsl import BaseEntity, gene, protein, rna
 
-# from .constants import data_dir, disease_abr, disease_ids_efo, ot_file
+from .network_phewas import NetworkNx
 
 
 def get_base_dir(basedir, path):
@@ -94,7 +93,7 @@ def download_for_disease(disease_id, outpath):
     ot = OpenTargetsClient()
     assoc = ot.get_associations_for_disease(
         disease_id,
-        fields=['associationscore.datatypes', 'target.id']
+        fields=['association_scoredatatypes', 'target.id']
     ).filter(
         datatype='known_drug'
     )
@@ -108,6 +107,47 @@ def download_for_disease(disease_id, outpath):
             if 'symbol' in mapping.keys():
                 outfile.write(mapping['symbol'])
                 outfile.write('\n')
+
+
+def get_association_scores(disease_id, outpath):
+    """Obtain the association scores from the specified disease that are
+    stored in the OpenTargets database.
+
+    :param disease_id: The EFO code to the disease.
+    :param outpath: The path to the file to be created.
+    :return:b
+    """
+    ot = OpenTargetsClient()
+    assoc = ot.get_associations_for_disease(
+        disease_id,
+        fields=['association_scoreoverall', 'target.id']
+    )
+    assoc_simple = [
+        {'id': a['target']['id'],
+         'score': a['association_score']['overall']}
+        for a in assoc
+    ]
+    ensembl_list = [a['id'] for a in assoc_simple]
+
+    # Obtain the symbols for the genes associated to disease_id
+    mg = mygene.MyGeneInfo()
+    gene_query = mg.getgenes(ensembl_list, fields="symbol,query")
+    # TODO change here for entrez id
+    id_mappings = {
+        g['query']: g['symbol']
+        for g in gene_query
+        if 'symbol' in g
+    }
+    # Get the symbols and the scores
+    ensembl_list = [
+        (id_mappings[a['id']], a['score'])
+        for a in assoc_simple
+        if a['id'] in id_mappings
+    ]
+
+    with open(outpath, 'w+') as outfile:
+        for symbol, score in ensembl_list:
+            print(f'{symbol}\t{score}', file=outfile)
 
 
 def parse_gene_list(path: str, graph: nx.Graph, anno_type: str = "name") -> list:
@@ -147,15 +187,16 @@ def write_labels_file(outfile: str, graph: nx.Graph, target_list: List[str]):
     with open(outfile, 'w') as file:
         for node in graph.nodes:
             if (
-                isinstance(graph.nodes[node]['original_node'], BaseEntity) and
-                'name' in graph.nodes[node]['original_node'] and
-                graph.nodes[node]['original_node']['name'] in target_list
+                isinstance(graph.nodes[node]['bel_node'], BaseEntity) and
+                'name' in graph.nodes[node]['bel_node'] and
+                graph.nodes[node]['bel_node']['name'] in target_list
             ):
                 print(f'{node}\t1', file=file)
             else:
                 print(f'{node}\t0', file=file)
 
 
+# parsers
 def generate_phewas_file(out_path: str):
     """Create a file with gene-disease association from PheWAS data.
 
@@ -206,12 +247,12 @@ def get_phenotype_list(rbg) -> List:
 
 class AttributeFileGenerator:
 
-    def __init__(self, graph: nx.Graph):
+    def __init__(self, network: NetworkNx):
         """Initializes the object.
 
         :param graph: The graph with nodes already converted to integers.
         """
-        self.graph = graph
+        self.graph = network.graph
 
     def get_attribute_mappings(self) -> Dict:
         mappings = dict()
@@ -253,3 +294,15 @@ class AttributeFileGenerator:
 
         annotated_graph = rbg.copy()
         add_disease_attribute(annotated_graph, pw_dict)
+
+    @staticmethod
+    def _add_attribute_values(value, att_mappings, indices):
+        """Add an attribute value to the given vertices.
+
+        :param int value: Attribute value.
+        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
+        :param list indices: Indices of the vertices.
+        """
+        for i in indices:
+            att_mappings[i].append(value)
+
