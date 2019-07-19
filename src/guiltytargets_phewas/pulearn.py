@@ -3,21 +3,22 @@
 from collections import defaultdict
 
 import pandas as pd
-from GAT2VEC import parsers, paths
-from GAT2VEC.evaluation.classification import Classification
 from sklearn import svm
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.model_selection import StratifiedKFold
 
+from guiltytargets.gat2vec import Classification, Gat2Vec, gat2vec_parsers, gat2vec_paths
+
+__all__ = [
+    'PULearn',
+]
+
 
 # TODO move to GAT2VEC (forked)?
-
-
 class PULearn(Classification):
-    """ """
 
     def evaluate(self, model, label=False, evaluation_scheme="tr", cost_p: float = None, cost_n: float = None):
-        """Evaluates the model according to the given evaluation scheme.
+        """Evaluate the model according to the given evaluation scheme.
 
         :param model:
         :param label:
@@ -30,7 +31,7 @@ class PULearn(Classification):
         clf = self.get_classifier()
 
         if not label:
-            embedding = parsers.get_embeddingDF(model)
+            embedding = gat2vec_parsers.get_embeddingDF(model)
 
         if evaluation_scheme == "bsvm":
             if cost_n and cost_p and cost_n > 0 and cost_p > 0:
@@ -44,9 +45,9 @@ class PULearn(Classification):
             for tr in self.TR:
                 print("TR ... ", tr)
                 if label:
-                    model = paths.get_embedding_path_wl(self.dataset_dir, self.output_dir, tr)
+                    model = gat2vec_paths.get_embedding_path_wl(self.dataset_dir, self.output_dir, tr)
                     if isinstance(model, str):
-                        embedding = parsers.get_embeddingDF(model)
+                        embedding = gat2vec_parsers.get_embeddingDF(model)
                 results.update(self.evaluate_tr(clf, embedding, tr))
 
         print("Training Finished")
@@ -89,9 +90,7 @@ class PULearn(Classification):
         return clf.predict(x_test), clf.predict_proba(x_test)
 
 
-if __name__ == '__main__':
-    from GAT2VEC.gat2vec import Gat2Vec
-
+def main():
     dir_ = "C:/Users/Mauricio/Thesis/bel_data/alzh"
     g2v = Gat2Vec(dir_, dir_, label=False, tr=[0.1, 0.3, 0.5])
     walk_length = 4
@@ -111,3 +110,7 @@ if __name__ == '__main__':
     print('PU created.')
     auc_df = pul.evaluate(model, label=False, evaluation_scheme="bsvm")
     print(auc_df)
+
+
+if __name__ == '__main__':
+    main()

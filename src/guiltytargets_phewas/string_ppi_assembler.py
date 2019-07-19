@@ -68,6 +68,10 @@ class StringAssembler:
         return dict(data3[['protein_external_id', 'preferred_name']].values)
 
 
-if __name__ == '__main__':
+def main():
     assembler = StringAssembler()
     assembler.create_adj_file()
+
+
+if __name__ == '__main__':
+    main()

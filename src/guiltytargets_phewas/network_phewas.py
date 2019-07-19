@@ -7,8 +7,13 @@ from typing import Dict, List, Optional
 
 import networkx as nx
 import numpy as np
-from ppi_network_annotation.model.gene import Gene
-from pybel.dsl import protein, rna, gene
+from pybel.dsl import gene, protein, rna
+
+from guiltytargets.ppi_network_annotation import Gene
+
+__all__ = [
+    'NetworkNx',
+]
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +21,13 @@ logger = logging.getLogger(__name__)
 class NetworkNx:
     """Encapsulate a PPI network with differential gene expression, phenotypes and disease association annotation."""
 
-    def __init__(self,
-                 ppi_graph: nx.Graph,
-                 max_adj_p: Optional[float] = None,
-                 max_l2fc: Optional[float] = None,
-                 min_l2fc: Optional[float] = None):
+    def __init__(
+            self,
+            ppi_graph: nx.Graph,
+            max_adj_p: Optional[float] = None,
+            max_l2fc: Optional[float] = None,
+            min_l2fc: Optional[float] = None,
+    ) -> None:
         """Initialize the network object.
 
         :param ppi_graph: A graph of protein interactions.
@@ -63,8 +70,11 @@ class NetworkNx:
         logger.info("In filter_genes()")
         raise Exception('Not ready to filter genes using NetworkX')
 
-    def _add_vertex_attributes(self, genes: List[Gene],
-                               disease_associations: Optional[dict] = None) -> None:
+    def _add_vertex_attributes(
+            self,
+            genes: List[Gene],
+            disease_associations: Optional[dict] = None,
+    ) -> None:
         """Add attributes to vertices.
 
         :param genes: A list of genes containing attribute information.
@@ -158,8 +168,7 @@ class NetworkNx:
         return list(np.array(self.graph.vs[attribute_name])[indices])
 
     def get_differentially_expressed_genes(self, diff_type: str) -> List:
-        """Get up regulated, down regulated, all differentially expressed or not
-        differentially expressed nodes.
+        """Get up regulated, down regulated, all differentially expressed or not differentially expressed nodes.
 
         :param diff_type: One of `not_diff_expressed`, `diff_expressed`, `up_regulated`, `down_regulated`
         :return: A list of nodes corresponding to diff_type.

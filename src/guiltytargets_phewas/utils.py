@@ -6,13 +6,13 @@ import os
 from typing import Dict, List, Optional
 
 import bio2bel_phewascatalog
-from guiltytargets.ppi_network_annotation.model.gene import Gene
 import mygene
-import pandas as pd
 import networkx as nx
+import pandas as pd
 from opentargets import OpenTargetsClient
 from pybel.dsl import BaseEntity, gene, protein, rna
 
+from guiltytargets.ppi_network_annotation.model.gene import Gene
 from .network_phewas import NetworkNx
 
 
@@ -67,9 +67,11 @@ def get_significantly_differentiated(gene_list: List[Gene], max_adjp: float):
     """Returns a dictionary only with significantly differentially expressed genes from the gene list."""
     max_adjp = max_adjp or 0.05
 
-    dge = {g.entrez_id or g.symbol: g.log2_fold_change 
-           for g in gene_list 
-           if g.padj < max_adjp}
+    dge = {
+        g.entrez_id or g.symbol: g.log2_fold_change
+        for g in gene_list
+        if g.padj < max_adjp
+    }
 
     return {k: v for k, v in dge.items() if k}
 
@@ -123,8 +125,10 @@ def get_association_scores(disease_id, outpath):
         fields=['association_scoreoverall', 'target.id']
     )
     assoc_simple = [
-        {'id': a['target']['id'],
-         'score': a['association_score']['overall']}
+        {
+            'id': a['target']['id'],
+            'score': a['association_score']['overall']
+        }
         for a in assoc
     ]
     ensembl_list = [a['id'] for a in assoc_simple]
@@ -305,4 +309,3 @@ class AttributeFileGenerator:
         """
         for i in indices:
             att_mappings[i].append(value)
-
