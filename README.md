@@ -1,2 +1,0 @@
-# phewas
-GuiltyTargets with PheWAS
