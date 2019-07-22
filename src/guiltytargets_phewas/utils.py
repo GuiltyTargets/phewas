@@ -2,6 +2,7 @@
 
 """Utility functions to run the algorithm."""
 
+from collections import defaultdict
 import os
 from typing import Dict, List, Optional
 
@@ -51,7 +52,12 @@ def add_dge_attribute(graph: nx.Graph, gene_dict: Dict):
     """ """
     max_adjp = 0.05
     min_l2fc, max_l2fc = -0.5, 0.5
-    dge = {g.entrez_id or g.symbol: g.log2_fold_change for g in gene_dict if g.padj < max_adjp}
+    dge = {
+        g.entrez_id or g.symbol: g.log2_fold_change
+        for g
+        in gene_dict
+        if g.padj < max_adjp
+    }
 
     for node in graph:
         if isinstance(node, (protein, rna, gene)) and node['name'] in dge.keys():
@@ -67,11 +73,9 @@ def get_significantly_differentiated(gene_list: List[Gene], max_adjp: float):
     """Returns a dictionary only with significantly differentially expressed genes from the gene list."""
     max_adjp = max_adjp or 0.05
 
-    dge = {
-        g.entrez_id or g.symbol: g.log2_fold_change
-        for g in gene_list
-        if g.padj < max_adjp
-    }
+    dge = {g.entrez_id or g.symbol: g.log2_fold_change 
+           for g in gene_list 
+           if g.padj < max_adjp}
 
     return {k: v for k, v in dge.items() if k}
 
@@ -232,6 +236,7 @@ def refied_graph_to_ppi_adj_file(graph: nx.Graph, out_path: str):
     nx.write_adjlist(graph, out_path)
 
 
+# TODO delete this?
 def get_phenotype_list(rbg) -> List:
     """ Get the list of phenotypes per gene in the graph.
 
@@ -250,28 +255,17 @@ def get_phenotype_list(rbg) -> List:
 
 
 class AttributeFileGenerator:
+    """Mimic encapsulation of a bipartite attribute network for Gat2Vec from a
+    reified OpenBEL network."""
 
     def __init__(self, network: NetworkNx):
-        """Initializes the object.
+        """Initializes the network object.
 
         :param graph: The graph with nodes already converted to integers.
         """
         self.graph = network.graph
+        self.network = network
 
-    def get_attribute_mappings(self) -> Dict:
-        mappings = dict()
-
-        # Pega o numero de vertices do graph
-        start_ind = len(self.graph)
-
-        # att_mappings +1 +2 +3 vao pra DGE
-
-        # as doencas comecam no +3
-
-        # retorna dicionario q vai pro arquivo praticamente direto
-        return mappings
-
-    # TODO usar esse inves do write_adj_file_attribute
     def write_attribute_adj_list(self, outpath: str):
         """Write the bipartite attribute graph to a file.
 
@@ -283,21 +277,87 @@ class AttributeFileGenerator:
             for k, v in att_mappings.items():
                 print("{} {}".format(k, " ".join(str(e) for e in v)), file=file)
 
-    def get_phenotype_list(self, rbg) -> List:
-        """ Get the list of phenotypes per gene in the graph.
+    def get_attribute_mappings(self) -> Dict:
+        att_ind_start = self.network.graph.number_of_nodes()
 
-        :param start_ind:
-        :return:
+        att_mappings = defaultdict(list)
+        att_ind_end = self._add_differential_expression_attributes(att_ind_start, att_mappings)
+        if [node for node in self.network.graph if "associated_diseases" in self.network.graph[node]]:
+            self._add_disease_association_attributes(att_ind_end, att_mappings)
+
+        return att_mappings
+
+    def _add_disease_association_attributes(self, att_ind_start, att_mappings):
+        """Add disease association information to the attribute mapping dictionary.
+
+        :param int att_ind_start: Start index for enumerating the attributes.
+        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
         """
-        pw_dict = bio2bel_phewascatalog.Manager().to_dict()
-        start_ind = len(rbg.nodes) + 3
-        phenotypes_list = set([phe for _list in pw_dict.values()
-                               for odds, phe in _list])
-        enum_phenotypes = enumerate(phenotypes_list, start=start_ind)
-        phenot_hash = {phenot: num for num, phenot in enum_phenotypes}
+        disease_mappings = self.get_disease_mappings(att_ind_start)
+        #
+        for node in self.network.graph:
+            if ('associated_diseases' in self.network.graph[node] and
+                    self.network.graph[node]['associated_diseases']):
+                assoc_disease_ids = [
+                    disease_mappings[disease]
+                    for disease
+                    in self.network.graph[node]['associated_diseases']
+                ]
+                att_mappings[node].extend(assoc_disease_ids)
 
-        annotated_graph = rbg.copy()
-        add_disease_attribute(annotated_graph, pw_dict)
+    def get_disease_mappings(self, att_ind_start):
+        """Get a dictionary of enumerations for diseases.
+
+        :param int att_ind_start: Starting index for enumeration.
+        :return: Dictionary of disease, number pairs.
+        """
+        all_disease_ids = self.get_all_unique_diseases()
+
+        disease_enum = enumerate(all_disease_ids, start=att_ind_start)
+        disease_mappings = {}
+        for num, dis in disease_enum:
+            disease_mappings[dis] = num
+        return disease_mappings
+
+    def get_all_unique_diseases(self):
+        """Get all unique diseases that are known to the network.
+
+        :return: All unique disease identifiers.
+        """
+        all_disease_ids = [
+            self.network.graph[node]['associated_diseases']
+            for node
+            in self.network.graph
+            if ('associated_diseases' in self.network.graph[node] and
+                self.network.graph[node]['associated_diseases'])
+        ]
+        # remove None values from list
+        all_disease_ids = [lst for lst in all_disease_ids if lst is not None]
+        # flatten list of lists, get unique elements
+        all_disease_ids = set([
+            phe
+            for _list in all_disease_ids
+            for phe in _list
+            if phe
+        ])
+
+        return list(all_disease_ids)
+
+    def _add_differential_expression_attributes(self, att_ind_start, att_mappings):
+        """Add differential expression information to the attribute mapping dictionary.
+
+        :param int att_ind_start: Start index for enumerating the attributes.
+        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
+        :return: End index for attribute enumeration.
+        """
+        up_regulated_ind = self.network.get_differentially_expressed_genes('up_regulated')
+        down_regulated_ind = self.network.get_differentially_expressed_genes('down_regulated')
+        rest_ind = self.network.get_differentially_expressed_genes('not_diff_expressed')
+
+        self._add_attribute_values(att_ind_start + 1, att_mappings, up_regulated_ind)
+        self._add_attribute_values(att_ind_start + 2, att_mappings, down_regulated_ind)
+        self._add_attribute_values(att_ind_start + 3, att_mappings, rest_ind)
+        return att_ind_start + 4
 
     @staticmethod
     def _add_attribute_values(value, att_mappings, indices):

@@ -10,7 +10,6 @@ import psycopg2
 
 class StringAssembler:
     def __init__(self):
-        self.adj_file = 'string.edgelist'
         self.ppi_url = f'https://stringdb-static.org/download/' \
             f'protein.links.full.v11.0/9606.protein.links.full.v11.0.txt.gz'
         self.ppi_file = 'C:\\Users\\Mauricio\\Thesis\\9606.protein.links.full.v11.0.txt.gz'
@@ -26,14 +25,13 @@ class StringAssembler:
 
         self._dir = ""
 
-    def create_adj_file(self):
+    def create_adj_file(self, out_path):
         """Create a csv file containing the protein interactions and the score.
 
         Requires the download from the protein network data for the organism Homo Sapiens from
-        https://string-db.org/cgi/download.pl?sessionId=xoIrOw0ShV9o&species_text=Homo+sapiens
+        https://string-db.org/cgi/download.pl?sessionId=xoIrOw0ShV9o&species_text=Homo+sapiens.
 
-        :param url:
-        :param out_path:
+        :param out_path: Path to the adjacency file (`string.edgelist`).
         :return:
         """
         # s = requests.get(url).content
@@ -46,7 +44,7 @@ class StringAssembler:
         ensp_to_symbol = self._get_ensembl_id_to_symbol_converter()
         df.loc[:, 'prot_symbol1'] = pd.Series([ensp_to_symbol[x] for x in df['protein1']])
         df.loc[:, 'prot_symbol2'] = pd.Series([ensp_to_symbol[x] for x in df['protein2']])
-        df[self.out_cols].to_csv(self.adj_file, sep='\t', header=False, index=False)
+        df[self.out_cols].to_csv(out_path, sep='\t', header=False, index=False)
 
     def _get_ensembl_id_to_symbol_converter(self) -> Dict:
         """Get a converter from Ensembl Id (ENSPxxx) to protein symbol.
@@ -70,7 +68,7 @@ class StringAssembler:
 
 def main():
     assembler = StringAssembler()
-    assembler.create_adj_file()
+    assembler.create_adj_file('string.edgelist')
 
 
 if __name__ == '__main__':

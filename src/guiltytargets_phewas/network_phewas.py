@@ -6,16 +6,15 @@ import logging
 from typing import Dict, List, Optional
 
 import networkx as nx
-import numpy as np
-from pybel.dsl import gene, protein, rna
+from pybel.dsl import protein, rna, gene
 
 from guiltytargets.ppi_network_annotation import Gene
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     'NetworkNx',
 ]
-
-logger = logging.getLogger(__name__)
 
 
 class NetworkNx:
@@ -26,7 +25,7 @@ class NetworkNx:
             ppi_graph: nx.Graph,
             max_adj_p: Optional[float] = None,
             max_l2fc: Optional[float] = None,
-            min_l2fc: Optional[float] = None,
+            min_l2fc: Optional[float] = None
     ) -> None:
         """Initialize the network object.
 
@@ -68,12 +67,16 @@ class NetworkNx:
         :param list relevant_entrez: Entrez IDs of genes which are to be kept.
         """
         logger.info("In filter_genes()")
+        irrelevant = [node for node in self.graph if node not in relevant_entrez]
+        self.graph.remove_nodes_from(irrelevant)
+        # TODO Remove disconnected nodes
+        #
         raise Exception('Not ready to filter genes using NetworkX')
 
     def _add_vertex_attributes(
             self,
             genes: List[Gene],
-            disease_associations: Optional[dict] = None,
+            disease_associations: Optional[dict] = None
     ) -> None:
         """Add attributes to vertices.
 
@@ -165,10 +168,12 @@ class NetworkNx:
         :return: A list of attribute values for the requested indices.
         """
         # TODO Update for NetworkX
-        return list(np.array(self.graph.vs[attribute_name])[indices])
+        raise Exception('Not ready, using NetworkX. How or where is this used?')
+        # return list(np.array(self.graph.vs[attribute_name])[indices])
 
     def get_differentially_expressed_genes(self, diff_type: str) -> List:
-        """Get up regulated, down regulated, all differentially expressed or not differentially expressed nodes.
+        """Get up regulated, down regulated, all differentially expressed or not
+        differentially expressed nodes indices.
 
         :param diff_type: One of `not_diff_expressed`, `diff_expressed`, `up_regulated`, `down_regulated`
         :return: A list of nodes corresponding to diff_type.
@@ -176,12 +181,17 @@ class NetworkNx:
         assert diff_type in [
             "not_diff_expressed", "diff_expressed", "up_regulated", "down_regulated"
         ], f"{diff_type} is not a valid type"
-        nodes = []
-        for node in self.graph:
-            if {"diff_expressed", "up_regulated", "down_regulated"}.issubset(self.graph.nodes[node].keys()):
-                if diff_type == "not_diff_expressed":
-                    if not self.graph.nodes[node]["diff_expressed"]:
-                        nodes.append(node)
-                elif self.graph.nodes[node][diff_type]:
-                    nodes.append(node)
-        return nodes
+        if diff_type == "not_diff_expressed":
+            return [
+                node
+                for node in self.graph
+                if (['diff_expressed'] in self.graph.nodes[node] and
+                    not self.graph.nodes[node]['diff_expressed'])
+            ]
+        else:
+            return [
+                node
+                for node in self.graph
+                if ([diff_type] in self.graph.nodes[node] and
+                    self.graph.nodes[node][diff_type])
+            ]
