@@ -6,7 +6,7 @@ import logging
 from typing import Dict, List, Optional
 
 import networkx as nx
-from pybel.dsl import protein, rna, gene
+from pybel.dsl import CentralDogma
 
 from guiltytargets.ppi_network_annotation import Gene
 
@@ -22,14 +22,14 @@ class NetworkNx:
 
     def __init__(
             self,
-            ppi_graph: nx.Graph,
+            reified_graph: nx.Graph,
             max_adj_p: Optional[float] = None,
             max_l2fc: Optional[float] = None,
             min_l2fc: Optional[float] = None
     ) -> None:
         """Initialize the network object.
 
-        :param ppi_graph: A graph of protein interactions.
+        :param reified_graph: A graph of protein interactions.
         :param max_adj_p: Maximum value for adjusted p-value, used for calculating differential expression.
         :param max_l2fc: Maximum value for log2 fold change, used for calculating down regulation.
         :param min_l2fc: Minimum value for log2 fold change, used for calculating up regulation.
@@ -41,7 +41,10 @@ class NetworkNx:
         self.max_l2fc = max_l2fc or -1.0
         self.min_l2fc = min_l2fc or +1.0
 
-        self.graph = ppi_graph.copy()
+        self.graph = nx.relabel.convert_node_labels_to_integers(
+            reified_graph.to_undirected(),
+            label_attribute='bel_node'
+        )
 
     def set_up_network(
             self,
@@ -58,7 +61,7 @@ class NetworkNx:
         :param disease_associations: Diseases associated with genes.
         """
         if gene_filter:
-            self.filter_genes([gene.entrez_id for gene in genes])
+            self.filter_genes([g.entrez_id for g in genes])
         self._add_vertex_attributes(genes, disease_associations)
 
     def filter_genes(self, relevant_entrez: list) -> None:
@@ -89,7 +92,7 @@ class NetworkNx:
         up_regulated, down_regulated = 0, 0
         for node in self.graph:
             cur_node = self.graph.nodes[node]
-            if isinstance(cur_node['bel_node'], (protein, rna, gene)):
+            if isinstance(cur_node['bel_node'], CentralDogma):
                 if cur_node['padj'] < self.max_adj_p:
                     if cur_node['l2fc'] > self.max_l2fc:
                         cur_node['diff_expressed'] = True
@@ -109,10 +112,10 @@ class NetworkNx:
     def _set_default_vertex_attributes(self):
         """Initializes each vertex with its required attributes."""
         for node in self.graph:
-            if isinstance(self.graph.nodes[node]['bel_node'], (protein, rna, gene)):
+            if isinstance(self.graph.nodes[node]['bel_node'], CentralDogma):
                 self.graph.nodes[node]["l2fc"] = 0
                 self.graph.nodes[node]["padj"] = 0.5
-                self.graph.nodes[node]["symbol"] = self.graph.nodes[node]['bel_node']["name"]
+                self.graph.nodes[node]["name"] = self.graph.nodes[node]['bel_node']["name"]
                 self.graph.nodes[node]["diff_expressed"] = False
                 self.graph.nodes[node]["up_regulated"] = False
                 self.graph.nodes[node]["down_regulated"] = False
@@ -133,7 +136,7 @@ class NetworkNx:
         }
         for node in self.graph:
             cur_node = self.graph.nodes[node]
-            if (isinstance(cur_node['bel_node'], (protein, rna, gene)) and
+            if (isinstance(cur_node['bel_node'], CentralDogma) and
                     cur_node['bel_node']['name'] in gene_dict):
                 cur_gene = gene_dict[cur_node['bel_node']['name']]
                 cur_node['l2fc'] = cur_gene['l2fc']
@@ -149,7 +152,7 @@ class NetworkNx:
             for node in self.graph:
                 cur_node = self.graph.nodes[node]
                 if ('bel_node' in cur_node and
-                        isinstance(cur_node['bel_node'], (protein, rna, gene)) and
+                        isinstance(cur_node['bel_node'], CentralDogma) and
                         cur_node['bel_node']['name'] in disease_associations):
                     cur_node['associated_diseases'] = disease_associations[cur_node['bel_node']['name']]
 
@@ -160,16 +163,27 @@ class NetworkNx:
         """
         nx.write_adjlist(self.graph, path)
 
-    def get_attribute_from_indices(self, indices: list, attribute_name: str):
+    def get_attribute_from_indices(self, indices: list, attribute_name: str) -> List:
         """Get attribute values for the requested indices.
 
         :param indices: Indices of vertices for which the attribute values are requested.
         :param attribute_name: The name of the attribute.
         :return: A list of attribute values for the requested indices.
         """
-        # TODO Update for NetworkX
-        raise Exception('Not ready, using NetworkX. How or where is this used?')
-        # return list(np.array(self.graph.vs[attribute_name])[indices])
+        # TODO Not sure how this works.
+        gene_ind = {
+            node: self.graph.nodes[node][attribute_name]
+            for node
+            in self.graph
+            if attribute_name in self.graph.nodes[node]
+        }
+
+        return [
+            attribute
+            for node, attribute
+            in gene_ind.items()
+            if node in indices
+        ]
 
     def get_differentially_expressed_genes(self, diff_type: str) -> List:
         """Get up regulated, down regulated, all differentially expressed or not
@@ -184,14 +198,16 @@ class NetworkNx:
         if diff_type == "not_diff_expressed":
             return [
                 node
-                for node in self.graph
-                if (['diff_expressed'] in self.graph.nodes[node] and
+                for node
+                in self.graph
+                if ('diff_expressed' in self.graph.nodes[node] and
                     not self.graph.nodes[node]['diff_expressed'])
             ]
         else:
             return [
                 node
-                for node in self.graph
-                if ([diff_type] in self.graph.nodes[node] and
+                for node
+                in self.graph
+                if (diff_type in self.graph.nodes[node] and
                     self.graph.nodes[node][diff_type])
             ]
