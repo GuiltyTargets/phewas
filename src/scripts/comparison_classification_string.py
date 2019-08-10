@@ -21,7 +21,7 @@ warnings.simplefilter('ignore')
 
 # Log the run
 logger = logging.getLogger('guiltytargets')
-fh = logging.FileHandler('nested_cv_test.log')
+fh = logging.FileHandler('comp_class_string.log')
 fh.setLevel(logging.DEBUG)
 # create console handler with a higher log level
 ch = logging.StreamHandler()
@@ -30,7 +30,7 @@ logger.addHandler(ch)
 logger.addHandler(fh)
 
 # Paths
-data_basedir = r'C:\Users\Mauricio\Thesis\data'
+data_basedir = r'/home/bit/lacerda/data'
 base_ppi_path = os.path.join(data_basedir, 'STRING')
 
 targets_file_mask = os.path.join(data_basedir, r'OpenTargets/%s/ot_symbol.txt')
@@ -40,7 +40,7 @@ phewas_path = r'phewas_catalog/phewas.txt'
 
 dge_path_mask = os.path.join(data_basedir, r'DGE/%s/DifferentialExpression.tsv')
 
-graph_paths = ['string.edgelist']
+graph_paths = ['string_symbol.edgelist']
 
 DISEASE_ABBREVIATIONS = [
     'aml',  # acute myeloid leukemia # bone marrow
@@ -75,9 +75,11 @@ def main():
         assoc_file = assoc_file_mask % disease
         g2v_path = g2v_path_mask % disease
         dge_path = dge_path_mask % disease
-
+        print(f'downloading for {disease}')
+        
         download_for_disease(EFOS[disease], targets_file, anno_type='symbol')
         get_association_scores(EFOS[disease], assoc_file, anno_type='symbol')
+        print(f'downloaded for {disease}')
 
         gene_list = parse_dge(
             dge_path=dge_path,
@@ -161,9 +163,9 @@ def main():
 
             df['wbsvm'] = auc_df['auc']
 
-            df.boxplot(column=['rr', 'wrr', 'bsvm', 'wbsvm'], ax=axs[axs_ind])
+            df.boxplot(column=['rr', 'wrr', 'bsvm', 'wbsvm'], ax=axs)
 
-            axs[axs_ind].set_title(f'PPI {ppi_graph_path}"')
+            axs.set_title(f'PPI {ppi_graph_path}"')
             axs_ind += 1
         fig.savefig(f'comparison_humanbase-{disease}.png')
 
@@ -172,5 +174,5 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as e:
-        logger.debug(type(e))
-        logger.debug(traceback.format_exc())
+        logger.error(type(e))
+        logger.error(traceback.format_exc())
