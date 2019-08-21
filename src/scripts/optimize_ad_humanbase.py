@@ -34,8 +34,8 @@ data_base_dir = r'/home/bit/lacerda/data'
 assert os.path.isdir(data_base_dir), "Update your data_basedir folder for this environment."
 assert os.path.isdir(data_base_dir)
 
-targets_file = os.path.join(data_base_dir, r'OpenTargets/ad/ot_entrez.txt')
-assoc_file = os.path.join(data_base_dir, r'OpenTargets/ad/ot_assoc_entrez.txt')
+targets_file = os.path.join(data_base_dir, r'OpenTargets/ad/ot_symbol.txt')
+assoc_file = os.path.join(data_base_dir, r'OpenTargets/ad/ot_assoc_symbol.txt')
 g2v_path = os.path.join(data_base_dir, r'gat2vec_files/ppi/ad')
 phewas_path = None  # Phewas file need to be converted to Entrez
 
@@ -44,7 +44,7 @@ ppi_base_path = os.path.join(data_base_dir, r'HumanBase')
 dge = 'BM10'
 dge_path = os.path.join(data_base_dir, f'DGE/AMP-AD/DifferentialExpression_{dge}.csv')
 
-graph_paths = ['hippocampus_top', 'cerebral_cortex_top']
+graph_paths = ['hippocampus_top_symbol', 'cerebral_cortex_top_symbol']
 
 lfc_cutoff = 1.5  # no significance when changed
 ppi_edge_min_confidence = 0.0
@@ -86,7 +86,8 @@ def optimize_parameters(
     best_val = 0.0
     iter_string = ''
 
-    if [len(x) for x in [nwal, wlen, dim, wsize] if len(x) != 1] != 1:
+    if len([x for x in [nwal, wlen, dim, wsize] if len(x) != 1]) != 1:
+        logger.error('One and only one parameter should be optimized at a time')
         return -1
     df = pd.DataFrame()
     fig, axs = plt.subplots()
@@ -155,6 +156,7 @@ def main():
         dimens = 128
 
         # Optimize walk length
+        logger.info('Optimizing walk lenght')
         best_idx = optimize_parameters(
             network=network,
             nwal=[n_walk],
@@ -166,6 +168,7 @@ def main():
         w_len = g2v_opt_walk_len[best_idx]
 
         # Optimize number of walks
+        logger.info('Optimizing number of walks')
         best_idx = optimize_parameters(
             network=network,
             nwal=g2v_opt_num_walks,
@@ -177,6 +180,7 @@ def main():
         n_walk = g2v_opt_num_walks[best_idx]
 
         # Optimize window size
+        logger.info('Optimizing window size')
         best_idx = optimize_parameters(
             network=network,
             nwal=[n_walk],
@@ -188,6 +192,7 @@ def main():
         w_size = g2v_opt_win_size[best_idx]
 
         # Optimize dimension
+        logger.info('Optimizing dimension')
         best_idx = optimize_parameters(
             network=network,
             nwal=[n_walk],
@@ -206,6 +211,7 @@ def main():
 
 if __name__ == '__main__':
     start_time = time.time()
+    logger.info('Starting...')
     try:
         main()
     except Exception as e:
