@@ -4,7 +4,6 @@
 
 import logging
 import itertools
-import os
 import time
 import traceback
 import warnings
@@ -15,6 +14,7 @@ import pandas as pd
 from guiltytargets.pipeline import rank_targets, write_gat2vec_input_files
 from guiltytargets.ppi_network_annotation import generate_ppi_network, parse_dge
 from guiltytargets.ppi_network_annotation.parsers import parse_gene_list
+from .constants import *
 
 # Suppress warnings
 warnings.simplefilter('ignore')
@@ -29,40 +29,19 @@ ch.setLevel(logging.INFO)
 logger.addHandler(ch)
 logger.addHandler(fh)
 
-# Paths
-data_base_dir = r'/home/bit/lacerda/data'
-assert os.path.isdir(data_base_dir), "Update your data_basedir folder for this environment."
-assert os.path.isdir(data_base_dir)
-
-targets_file = os.path.join(data_base_dir, r'OpenTargets/ad/ot_entrez.txt')
-assoc_file = os.path.join(data_base_dir, r'OpenTargets/ad/ot_assoc_entrez.txt')
-g2v_path = os.path.join(data_base_dir, r'gat2vec_files/ppi/ad')
-phewas_path = None  # Phewas file need to be converted to Entrez
-
-ppi_base_path = os.path.join(data_base_dir, r'HumanBase')
+assert os.path.isdir(DATA_BASE_DIR), "Update your data_basedir folder for this environment."
 
 dge = 'BM10'
-dge_path = os.path.join(data_base_dir, f'DGE/AMP-AD/DifferentialExpression_{dge}.csv')
 
+# Paths
+targets_file = os.path.join(DATA_BASE_DIR, r'OpenTargets/ad/ot_entrez.txt')
+assoc_file = os.path.join(DATA_BASE_DIR, r'OpenTargets/ad/ot_assoc_entrez.txt')
+g2v_path = os.path.join(DATA_BASE_DIR, r'gat2vec_files/ppi/ad')
+phewas_path = None  # Phewas file need to be converted to Entrez
+
+ppi_base_path = os.path.join(DATA_BASE_DIR, r'HumanBase')
+dge_path = os.path.join(DATA_BASE_DIR, f'DGE/AMP-AD/DifferentialExpression_{dge}.csv')
 graph_paths = ['hippocampus_top', 'cerebral_cortex_top']
-
-lfc_cutoff = 1.5  # no significance when changed
-ppi_edge_min_confidence = 0.0
-
-# parameters for optimization
-g2v_opt_num_walks = [2, 5, 10, 20, 30, 80]
-g2v_opt_walk_len = [4, 20, 40, 80, 120, 160]
-g2v_opt_dimension = [2, 16, 64, 128, 512]
-g2v_opt_win_size = [2, 5, 10, 20, 30]
-
-# for differential expression
-max_padj = 0.05
-base_mean_name = 'baseMean' or None  # it was None
-log_fold_change_name = 'log2FoldChange'
-adjusted_p_value_name = 'padj'
-entrez_id_name = 'entrez'
-split_char = '///'
-diff_type = 'all'
 
 def optimize_parameters(
         network,
@@ -118,11 +97,11 @@ def main():
 
     gene_list = parse_dge(
         dge_path=dge_path,
-        entrez_id_header=entrez_id_name,
-        log2_fold_change_header=log_fold_change_name,
-        adj_p_header=adjusted_p_value_name,
+        entrez_id_header=entrez_id_name_ad,
+        log2_fold_change_header=log_fold_change_name_ad,
+        adj_p_header=adjusted_p_value_name_ad,
         entrez_delimiter=split_char,
-        base_mean_header=base_mean_name,
+        base_mean_header=base_mean_name_ad,
     )
     for ppi_graph_path in graph_paths:
 
@@ -203,6 +182,18 @@ def main():
         logger.info(f'Number of walks: {n_walk}')
         logger.info(f'window size: {w_size}')
         logger.info(f'dimension: {dimens}')
+
+        auc_df, _ = rank_targets(
+            directory=g2v_path,
+            network=network,
+            num_walks=n_walk,
+            walk_length=w_len,
+            dimension=dimens,
+            window_size=w_size,
+        )
+
+        logger.info('Result with optimized parameters.')
+        logger.info(auc_df)
 
 if __name__ == '__main__':
     start_time = time.time()
