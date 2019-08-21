@@ -4,6 +4,7 @@
 
 import logging
 import itertools
+from math import ceil
 import time
 import traceback
 import warnings
@@ -20,7 +21,8 @@ from .constants import *
 warnings.simplefilter('ignore')
 
 # Log the run
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 fh = logging.FileHandler('optimize_parameters_ad.log')
 fh.setLevel(logging.DEBUG)
 # create console handler with a higher log level
@@ -48,7 +50,7 @@ def optimize_parameters(
         nwal: list,
         wlen: list,
         dim: list,
-        wsize: list,
+        ws_mult: list,
         evaluation: str='auc'
 ) -> int:
     """Tests the algorithm with the given parameters. Only one of the parameters can be tested at a time.
@@ -57,34 +59,37 @@ def optimize_parameters(
     :param nwal: List of values to be used for number of walks.
     :param wlen: List of values to be used for walk length.
     :param dim: List of values to be used for dimension.
-    :param wsize: List of values to be used for window size.
+    :param ws_mult: List of multipliers (of #Walks) to be used for window size.
     :param evaluation: Column used to evaluate the hyperparameters ('auc', 'aps', ...)
     :return: The index to the parameter with the best result.
     """
     best_idx = -1
     best_val = 0.0
-    iter_string = ''
 
-    if [len(x) for x in [nwal, wlen, dim, wsize] if len(x) != 1] != 1:
+    if len([x for x in [nwal, wlen, dim, ws_mult] if len(x) != 1]) != 1:
+        logger.error('One and only one parameter should be optimized at a time')
         return -1
     df = pd.DataFrame()
     fig, axs = plt.subplots()
-    for idx, (nw, wl, d, ws) in enumerate(itertools.product(nwal, wlen, dim, wsize)):
+    opt_start = time.time()
+    for idx, (nw, wl, d, ws) in enumerate(itertools.product(nwal, wlen, dim, ws_mult)):
         auc_df, _ = rank_targets(
             directory=g2v_path,
             network=network,
             num_walks=nw,
             walk_length=wl,
             dimension=d,
-            window_size=ws,
+            window_size=int(ceil(ws * nw)),
         )
+        logger.debug(f'Intermediate result in {time.time() - opt_start}s')
         iter_string = f'nw{nw}wl{wl}d{d}ws{ws}'
         df[iter_string] = auc_df[evaluation]
         if auc_df[evaluation].mean() >= best_val:
             best_idx = idx
             best_val = auc_df[evaluation].mean()
+    logger.info(f'Optimization {fig.number} total time: {time.time() - opt_start}s')
     df.boxplot(return_type='axes', ax=axs)
-    fig.suptitle(iter_string)
+    fig.suptitle(f'Optimization #{fig.number}')
     fig.savefig(f'optimization_ad_{fig.number}.png')
     return best_idx
 
@@ -93,7 +98,7 @@ def main():
 
     dim = len(graph_paths)
     fig, axs = plt.subplots(ncols=dim, sharey='all', squeeze=False)
-    fig.set_size_inches(10, 5)
+    fig.set_size_inches(15, 5)
 
     gene_list = parse_dge(
         dge_path=dge_path,
@@ -130,49 +135,53 @@ def main():
 
         # Starting parameters
         n_walk = 10
-        w_size = 10
+        w_size = .125
         dimens = 128
 
         # Optimize walk length
+        logger.info('Optimizing walk length')
         best_idx = optimize_parameters(
             network=network,
             nwal=[n_walk],
             wlen=g2v_opt_walk_len,
             dim=[dimens],
-            wsize=[w_size],
+            ws_mult=[w_size],
             evaluation='auc'
         )
         w_len = g2v_opt_walk_len[best_idx]
 
         # Optimize number of walks
+        logger.info('Optimizing number of walks')
         best_idx = optimize_parameters(
             network=network,
             nwal=g2v_opt_num_walks,
             wlen=[w_len],
             dim=[dimens],
-            wsize=[w_size],
+            ws_mult=[w_size],
             evaluation='auc'
         )
         n_walk = g2v_opt_num_walks[best_idx]
 
         # Optimize window size
+        logger.info('Optimizing window size')
         best_idx = optimize_parameters(
             network=network,
             nwal=[n_walk],
             wlen=[w_len],
             dim=[dimens],
-            wsize=g2v_opt_win_size,
+            ws_mult=g2v_opt_win_size_mult,
             evaluation='auc'
         )
-        w_size = g2v_opt_win_size[best_idx]
+        w_size = g2v_opt_win_size_mult[best_idx]
 
         # Optimize dimension
+        logger.info('Optimizing dimension')
         best_idx = optimize_parameters(
             network=network,
             nwal=[n_walk],
             wlen=[w_len],
             dim=g2v_opt_dimension,
-            wsize=[w_size],
+            ws_mult=[w_size],
             evaluation='auc'
         )
         dimens = g2v_opt_dimension[best_idx]
@@ -197,6 +206,7 @@ def main():
 
 if __name__ == '__main__':
     start_time = time.time()
+    logger.info('Starting...')
     try:
         main()
     except Exception as e:

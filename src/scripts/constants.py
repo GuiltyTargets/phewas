@@ -25,8 +25,8 @@ split_char = '///'
 diff_type = 'all'
 
 # Values for hyper-parameter optimization
-g2v_opt_num_walks = [2, 5, 10, 20, 30, 80]
-g2v_opt_walk_len = [4, 20, 40, 80, 120, 160]
-g2v_opt_dimension = [2, 16, 64, 128, 512]
-g2v_opt_win_size = [2, 5, 10, 20, 30]
+g2v_opt_num_walks = [2, 5, 10, 20, 40, 80]
+g2v_opt_walk_len = [5, 20, 40, 80, 120, 160]
+g2v_opt_dimension = [2, 16, 64, 128, 256]
+g2v_opt_win_size_mult = [.25, .5, .75, 1]
 
