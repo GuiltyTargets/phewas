@@ -2,6 +2,7 @@
 
 """This module contains the extension to the class Network from PPI annotation framework."""
 
+from collections import defaultdict
 import logging
 from typing import Dict, List, Optional
 
@@ -14,6 +15,8 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     'NetworkNx',
+    'LabeledNetworkGenerator',
+    'AttributeFileGenerator',
 ]
 
 
@@ -41,8 +44,10 @@ class NetworkNx:
         self.max_l2fc = max_l2fc or -1.0
         self.min_l2fc = min_l2fc or +1.0
 
+        print('networkphewas.NetworkNx - Test directed/undirected')
+        print('directed')
         self.graph = nx.relabel.convert_node_labels_to_integers(
-            reified_graph.to_undirected(),
+            reified_graph,
             label_attribute='bel_node'
         )
 
@@ -211,3 +216,254 @@ class NetworkNx:
                 if (diff_type in self.graph.nodes[node] and
                     self.graph.nodes[node][diff_type])
             ]
+
+    def get_labeled_network(self):
+        return LabeledNetworkGenerator(self)
+
+    def get_attribute_network(self):
+        return AttributeFileGenerator(self)
+
+    def find_genes(self, gene_list: list, anno_type: str = "name"):
+        symbols = [
+            self.graph.nodes[node]['name']
+            for node
+            in self.graph
+            if 'name' in self.graph.nodes[node]
+        ]
+
+        return list(gene_list.intersection(symbols))
+
+
+class AttributeFileGenerator:
+    """Mimic encapsulation of a bipartite attribute network for Gat2Vec from a
+    reified OpenBEL network."""
+
+    def __init__(self, network: NetworkNx):
+        """Initializes the network object.
+
+        :param graph: The graph with nodes already converted to integers.
+        """
+        self.graph = network.graph
+        self.network = network
+
+    def write_attribute_adj_list(self, outpath: str):
+        """Write the bipartite attribute graph to a file.
+
+        :param str outpath: Path to the output file.
+        """
+        att_mappings = self.get_attribute_mappings()
+
+        with open(outpath, mode="w") as file:
+            for k, v in att_mappings.items():
+                print("{} {}".format(k, " ".join(str(e) for e in v)), file=file)
+
+    def get_attribute_mappings(self) -> Dict:
+        att_ind_start = self.network.graph.number_of_nodes()
+
+        att_mappings = defaultdict(list)
+        att_ind_end = self._add_differential_expression_attributes(att_ind_start, att_mappings)
+        att_ind_end = self._add_predicate_attributes(att_ind_end, att_mappings)
+        if [node for node in self.network.graph if "associated_diseases" in self.network.graph.nodes[node]]:
+            self._add_disease_association_attributes(att_ind_end, att_mappings)
+
+        return att_mappings
+
+    def _add_predicate_attributes(self, att_ind_start, att_mappings):
+        """Add predicate information to the attribute mapping dictionary.
+
+        :param int att_ind_start: Start index for enumerating the attributes.
+        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
+        :return: New index position.
+        """
+        predicate_mappings = self.get_predicate_mappings(att_ind_start)
+
+        for node in self.network.graph:
+            if (
+                    type(self.network.graph.nodes[node]['bel_node']) == int and
+                    self.network.graph.nodes[node]['label'] in predicate_mappings
+            ):
+                test = predicate_mappings[self.network.graph.nodes[node]['label']]
+                att_mappings[node].append(test)
+        return att_ind_start + len(predicate_mappings)
+
+    def get_predicate_mappings(self, att_ind_start):
+        """Get a dictionary of enumerations for predicates.
+
+        :param int att_ind_start: Starting index for enumeration.
+        :return: Dictionary of predicate, number pairs.
+        """
+        all_predicate_labels = self.get_all_unique_predicates()
+
+        predicate_enum = enumerate(all_predicate_labels, start=att_ind_start)
+        predicate_mappings = {}
+        for num, pre in predicate_enum:
+            predicate_mappings[pre] = num
+        return predicate_mappings
+
+    def get_all_unique_predicates(self):
+        """Get all unique predicates that are known to the network.
+
+        :return: All unique predicate identifiers.
+        """
+        # get unique elements
+        all_predicate_labels = {
+            self.network.graph.nodes[node]['label']
+            for node
+            in self.network.graph
+            if type(self.network.graph.nodes[node]['bel_node']) == int
+        }
+        # remove None values and return as list
+        return [lst for lst in all_predicate_labels if lst]
+
+    def _add_disease_association_attributes(self, att_ind_start, att_mappings):
+        """Add disease association information to the attribute mapping dictionary.
+
+        :param int att_ind_start: Start index for enumerating the attributes.
+        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
+        """
+        disease_mappings = self.get_disease_mappings(att_ind_start)
+        #
+        for node in self.network.graph:
+            if ('associated_diseases' in self.network.graph.nodes[node] and
+                    self.network.graph.nodes[node]['associated_diseases']):
+                assoc_disease_ids = [
+                    disease_mappings[disease]
+                    for disease
+                    in self.network.graph.nodes[node]['associated_diseases']
+                ]
+                att_mappings[node].extend(assoc_disease_ids)
+
+    def get_disease_mappings(self, att_ind_start):
+        """Get a dictionary of enumerations for diseases.
+
+        :param int att_ind_start: Starting index for enumeration.
+        :return: Dictionary of disease, number pairs.
+        """
+        all_disease_ids = self.get_all_unique_diseases()
+
+        disease_enum = enumerate(all_disease_ids, start=att_ind_start)
+        disease_mappings = {}
+        for num, dis in disease_enum:
+            disease_mappings[dis] = num
+        return disease_mappings
+
+    def get_all_unique_diseases(self):
+        """Get all unique diseases that are known to the network.
+
+        :return: All unique disease identifiers.
+        """
+        all_disease_ids = [
+            self.network.graph.nodes[node]['associated_diseases']
+            for node
+            in self.network.graph
+            if ('associated_diseases' in self.network.graph.nodes[node] and
+                self.network.graph.nodes[node]['associated_diseases'])
+        ]
+        # remove None values from list
+        all_disease_ids = [lst for lst in all_disease_ids if lst is not None]
+        # flatten list of lists, get unique elements
+        all_disease_ids = set([
+            phe
+            for _list in all_disease_ids
+            for phe in _list
+            if phe
+        ])
+
+        return list(all_disease_ids)
+
+    def _add_differential_expression_attributes(self, att_ind_start, att_mappings):
+        """Add differential expression information to the attribute mapping dictionary.
+
+        :param int att_ind_start: Start index for enumerating the attributes.
+        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
+        :return: End index for attribute enumeration.
+        """
+        up_regulated_ind = self.network.get_differentially_expressed_genes('up_regulated')
+        down_regulated_ind = self.network.get_differentially_expressed_genes('down_regulated')
+        rest_ind = self.network.get_differentially_expressed_genes('not_diff_expressed')
+
+        self._add_attribute_values(att_ind_start, att_mappings, rest_ind)
+        self._add_attribute_values(att_ind_start + 1, att_mappings, up_regulated_ind)
+        self._add_attribute_values(att_ind_start + 2, att_mappings, down_regulated_ind)
+        return att_ind_start + 3
+
+    @staticmethod
+    def _add_attribute_values(value, att_mappings, indices):
+        """Add an attribute value to the given vertices.
+
+        :param int value: Attribute value.
+        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
+        :param list indices: Indices of the vertices.
+        """
+        for i in indices:
+            att_mappings[i].append(value)
+
+
+class LabeledNetworkGenerator:
+
+    def __init__(self, network: NetworkNx):
+        self.network = network
+
+    def write_index_labels(self, targets, output_path, sample_scores: dict = None):
+        """Write the mappings between vertex indices and labels(target vs. not) to a file.
+
+        :param list targets: List of known targets.
+        :param str output_path: Path to the output file.
+        :param str sample_scores: Sample scores from OpenTarget.
+        """
+        label_mappings = self.get_index_labels(targets)
+
+        with open(output_path, "w") as file:
+            for k, v in label_mappings.items():
+                if sample_scores:
+                    if self.network.graph.nodes[k]["name"] in sample_scores:
+                        score = self._convert_score_to_weight(
+                            v,
+                            sample_scores[self.network.graph.nodes[k]["name"]]
+                        )
+                        print(k, v, score, sep='\t', file=file)
+                    else:
+                        print(k, v, '1.', sep='\t', file=file)
+                else:
+                    print(k, v, sep='\t', file=file)
+
+    def get_index_labels(self, targets):
+        """Get the labels(known target/not) mapped to indices.
+
+        :param targets: List of known targets
+        :return: Dictionary of index-label mappings
+        """
+        gene_ind = {
+            self.network.graph.nodes[node]['name']: node
+            for node
+            in self.network.graph
+            if ('name' in self.network.graph.nodes[node])
+        }
+        target_ind = [node for name, node in gene_ind.items() if name in targets]
+        rest_ind = [node for name, node in gene_ind.items() if name not in targets]
+        label_mappings = {i: 1 for i in target_ind}
+        label_mappings.update({i: 0 for i in rest_ind})
+        return label_mappings
+
+    def write_files_for_g2v(
+            self,
+            targets: List[str],
+            home_dir: str,
+            assoc_score: Optional[Dict] = None
+    ):
+        ...
+
+    @staticmethod
+    def _convert_score_to_weight(label: int, score: float) -> float:
+        """Convert the association score into a weight for the weighted classification. If the
+        label is positive the weight is the score. If negative, the weight is 1 - score. This means,
+        a high score for a negative label will imply some uncertainty about it being a target.
+
+        :param label: 1 for positive, 0 for negative.
+        :param score: The association score.
+        :return: The weight.
+        """
+        if label:
+            return score
+        else:
+            return 1 - score

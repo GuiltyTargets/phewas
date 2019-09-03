@@ -2,7 +2,6 @@
 
 """Utility functions to run the algorithm."""
 
-from collections import defaultdict
 import logging
 from os import listdir
 from os.path import isfile, join
@@ -13,14 +12,14 @@ import mygene
 import networkx as nx
 import pandas as pd
 from opentargets import OpenTargetsClient
-from pybel import BELGraph, from_path, union, collapse_to_genes
+from pybel import BELGraph, from_path, union
 from pybel.dsl import BaseEntity, CentralDogma
 from pybel_tools.assembler.reified_graph.assembler import reify_bel_graph
 
 from guiltytargets.gat2vec import gat2vec_paths
 from guiltytargets.ppi_network_annotation.model.gene import Gene
 from guiltytargets.ppi_network_annotation.parsers import parse_disease_ids, parse_disease_associations
-from .network_phewas import NetworkNx
+from .network_phewas import AttributeFileGenerator, LabeledNetworkGenerator, NetworkNx
 
 logger = logging.getLogger('main')
 
@@ -57,7 +56,7 @@ def generate_bel_network(
         min_log2_fold_change: float,
         current_disease_ids_path: Optional[str] = None,
         disease_associations_path: Optional[str] = None,
-) -> NetworkNx:
+):
     """Generate the protein-protein interaction network.
 
     :return Network: Protein-protein interaction network with information on differential expression.
@@ -65,8 +64,8 @@ def generate_bel_network(
     # Load and reify the graph
     bel_graph = bel_graph_loader(bel_graph_path)
     print('utils.generate_bel_network Test collapsing network before reifying')
-    collapse_to_genes(bel_graph)
-    print(bel_graph is None)
+    # collapse_all_variants(bel_graph)
+    print('Not Collapsed!')
     reified = reify_bel_graph(bel_graph)
 
     if disease_associations_path is not None:
@@ -81,7 +80,7 @@ def generate_bel_network(
 
     # Build an undirected weighted graph with the remaining interactions based on Entrez gene IDs
     network = NetworkNx(
-        reified.to_undirected(),
+        reified,
         max_adj_p=max_adj_p,
         max_l2fc=max_log2_fold_change,
         min_l2fc=min_log2_fold_change,
@@ -92,7 +91,7 @@ def generate_bel_network(
 
 
 def write_gat2vec_input_files(
-        network: NetworkNx,
+        network,
         targets: List[str],
         home_dir: str,
         assoc_score: Optional[Dict] = None
@@ -171,7 +170,14 @@ def write_adj_file_attribute(graph, filepath: str, att_mappings: Dict, pred_mapp
 
 
 # Copied from GuiltyTargets/reproduction
-def download_for_disease(disease_id, outpath):
+def download_for_disease(disease_id, outpath, anno_type: str = 'entrezgene') -> None:
+    """Creates a disease list
+
+    :param disease_id: EFO code from the disease.
+    :param outpath:
+    :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
+    :return:
+    """
     ot = OpenTargetsClient()
     assoc = ot.get_associations_for_disease(
         disease_id,
@@ -182,21 +188,22 @@ def download_for_disease(disease_id, outpath):
     ensembl_list = [a['target']['id'] for a in assoc]
 
     mg = mygene.MyGeneInfo()
-    id_mappings = mg.getgenes(ensembl_list, fields="symbol")
+    id_mappings = mg.getgenes(ensembl_list, fields=anno_type)
 
     with open(outpath, 'w+') as outfile:
         for mapping in id_mappings:
-            if 'symbol' in mapping.keys():
-                outfile.write(mapping['symbol'])
+            if anno_type in mapping.keys():
+                outfile.write(mapping[anno_type])
                 outfile.write('\n')
 
 
-def get_association_scores(disease_id, outpath):
+def get_association_scores(disease_id, outpath, anno_type: str = 'entrezgene') -> None:
     """Obtain the association scores from the specified disease that are
     stored in the OpenTargets database.
 
     :param disease_id: The EFO code to the disease.
     :param outpath: The path to the file to be created.
+    :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
     :return:b
     """
     ot = OpenTargetsClient()
@@ -214,14 +221,8 @@ def get_association_scores(disease_id, outpath):
     ensembl_list = [a['id'] for a in assoc_simple]
 
     # Obtain the symbols for the genes associated to disease_id
-    mg = mygene.MyGeneInfo()
-    gene_query = mg.getgenes(ensembl_list, fields="symbol,query")
-    # TODO change here for entrez id
-    id_mappings = {
-        g['query']: g['symbol']
-        for g in gene_query
-        if 'symbol' in g
-    }
+    id_mappings = get_ensembl_id_to_code_converter(ensembl_list, anno_type)
+
     # Get the symbols and the scores
     ensembl_list = [
         (id_mappings[a['id']], a['score'])
@@ -234,7 +235,38 @@ def get_association_scores(disease_id, outpath):
             print(f'{symbol}\t{score}', file=outfile)
 
 
-def parse_gene_list(path: str, network: NetworkNx) -> list:
+def get_ensembl_id_to_code_converter(
+        ensembl_list: list,
+        anno_type: str
+) -> Dict[str, str]:
+    """Get a converter from Ensembl Id (ENSPxxx) to Entrez id or gene symbol.
+
+    :param ensembl_list: List of genes to query.
+    :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
+    :return: a dictionary with keys as Ensembl identifiers and values as the annotation type required.
+    """
+    mg = mygene.MyGeneInfo()
+    gene_query = mg.getgenes(ensembl_list, fields=f'query,{anno_type}')
+    """gene_query = mg.querymany(
+        ensembl_list,
+        scopes='symbol',
+        species='human',
+        as_dataframe=True,
+        fields=f'query,{anno_type}'
+    )"""
+
+    id_mappings = {
+        g['query']: g[anno_type]
+        for g in gene_query
+        if anno_type in g
+    }
+
+    print(len(id_mappings))
+
+    return id_mappings
+
+
+def parse_gene_list_reified(path: str, graph: nx.Graph) -> list:
     """Parse a list of genes and return them if they are in the network.
 
     :param str path: The path of input file.
@@ -251,13 +283,34 @@ def parse_gene_list(path: str, network: NetworkNx) -> list:
 
     # get those genes which are in the network
     symbols = [
-        network.graph.nodes[node]['name']
+        node['name']
         for node
-        in network.graph
-        if 'name' in network.graph.nodes[node]
+        in graph.nodes
+        if isinstance(node, CentralDogma) and 'name' in node
     ]
 
     return list(genes.intersection(symbols))
+
+
+# TODO Move the call to this to NetworkNx/Network?
+# TODO Then move this to parsers.
+def parse_gene_list(path: str, network) -> list:
+    """Parse a list of genes and return them if they are in the network.
+
+    :param str path: The path of input file.
+    :param Graph network: The graph with genes as nodes.
+    :return list: A list of genes, all of which are in the network.
+    """
+    # read the file
+    df = pd.read_csv(
+        path,
+        names=['gene'],
+        dtype={'gene': str}
+    )
+    genes = set(df['gene'])
+
+    # get those genes which are in the network
+    return network.find_genes(genes)
 
 
 def write_labels_file(outfile: str, graph: nx.Graph, target_list: List[str]):
@@ -295,25 +348,8 @@ def generate_phewas_file(out_path: str):
                 print(f'{target} {disease[1]}', file=file)
 
 
-# TODO delete this?
-def refied_graph_to_ppi_adj_file(graph: nx.Graph, out_path: str):
-    """Converts a Reified BEL Graph into a iGraph network, while keeping the connections and the gene information.
-
-    :param graph: A reified BEL graph.
-    :return: A iGraph version of the reified graph
-    """
-    converted = nx.Graph()
-    for edge in graph.edges(key=True):
-        (u, v, key) = edge
-        print(u)
-        print(v)
-        print(key)
-        print(edge)
-    nx.write_adjlist(graph, out_path)
-
-
-# TODO delete this?
-def get_phenotype_list(rbg) -> List:
+# TODO delete this only after notebook BEL2Gat2Vec(DGE) becomes obsolete
+def get_phenotype_list(rbg: nx.Graph) -> List:
     """ Get the list of phenotypes per gene in the graph.
 
     :param start_ind:
@@ -347,229 +383,3 @@ def bel_graph_loader(from_dir: str) -> BELGraph:
     bel_graphs = [from_path(file) for file in bel_files]
     return union(bel_graphs)
 
-
-class AttributeFileGenerator:
-    """Mimic encapsulation of a bipartite attribute network for Gat2Vec from a
-    reified OpenBEL network."""
-
-    def __init__(self, network: NetworkNx):
-        """Initializes the network object.
-
-        :param graph: The graph with nodes already converted to integers.
-        """
-        self.graph = network.graph
-        self.network = network
-
-    def write_attribute_adj_list(self, outpath: str):
-        """Write the bipartite attribute graph to a file.
-
-        :param str outpath: Path to the output file.
-        """
-        att_mappings = self.get_attribute_mappings()
-
-        with open(outpath, mode="w") as file:
-            for k, v in att_mappings.items():
-                print("{} {}".format(k, " ".join(str(e) for e in v)), file=file)
-
-    def get_attribute_mappings(self) -> Dict:
-        att_ind_start = self.network.graph.number_of_nodes()
-
-        att_mappings = defaultdict(list)
-        att_ind_end = self._add_differential_expression_attributes(att_ind_start, att_mappings)
-        att_ind_end = self._add_predicate_attributes(att_ind_end, att_mappings)
-        if [node for node in self.network.graph if "associated_diseases" in self.network.graph.nodes[node]]:
-            self._add_disease_association_attributes(att_ind_end, att_mappings)
-
-        return att_mappings
-
-    def _add_predicate_attributes(self, att_ind_start, att_mappings):
-        """Add predicate information to the attribute mapping dictionary.
-
-        :param int att_ind_start: Start index for enumerating the attributes.
-        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
-        :return: New index position.
-        """
-        predicate_mappings = self.get_predicate_mappings(att_ind_start)
-
-        for node in self.network.graph:
-            if (
-                    type(self.network.graph.nodes[node]['bel_node']) == int and
-                    self.network.graph.nodes[node]['label'] in predicate_mappings
-            ):
-                test = predicate_mappings[self.network.graph.nodes[node]['label']]
-                att_mappings[node].append(test)
-        return att_ind_start + len(predicate_mappings)
-
-    def get_predicate_mappings(self, att_ind_start):
-        """Get a dictionary of enumerations for predicates.
-
-        :param int att_ind_start: Starting index for enumeration.
-        :return: Dictionary of predicate, number pairs.
-        """
-        all_predicate_labels = self.get_all_unique_predicates()
-
-        predicate_enum = enumerate(all_predicate_labels, start=att_ind_start)
-        predicate_mappings = {}
-        for num, pre in predicate_enum:
-            predicate_mappings[pre] = num
-        return predicate_mappings
-
-    def get_all_unique_predicates(self):
-        """Get all unique predicates that are known to the network.
-
-        :return: All unique predicate identifiers.
-        """
-        # get unique elements
-        all_predicate_labels = {
-            self.network.graph.nodes[node]['label']
-            for node
-            in self.network.graph
-            if type(self.network.graph.nodes[node]['bel_node']) == int
-        }
-        # remove None values and return as list
-        return [lst for lst in all_predicate_labels if lst]
-
-    def _add_disease_association_attributes(self, att_ind_start, att_mappings):
-        """Add disease association information to the attribute mapping dictionary.
-
-        :param int att_ind_start: Start index for enumerating the attributes.
-        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
-        """
-        disease_mappings = self.get_disease_mappings(att_ind_start)
-        #
-        for node in self.network.graph:
-            if ('associated_diseases' in self.network.graph.nodes[node] and
-                    self.network.graph.nodes[node]['associated_diseases']):
-                assoc_disease_ids = [
-                    disease_mappings[disease]
-                    for disease
-                    in self.network.graph.nodes[node]['associated_diseases']
-                ]
-                att_mappings[node].extend(assoc_disease_ids)
-
-    def get_disease_mappings(self, att_ind_start):
-        """Get a dictionary of enumerations for diseases.
-
-        :param int att_ind_start: Starting index for enumeration.
-        :return: Dictionary of disease, number pairs.
-        """
-        all_disease_ids = self.get_all_unique_diseases()
-
-        disease_enum = enumerate(all_disease_ids, start=att_ind_start)
-        disease_mappings = {}
-        for num, dis in disease_enum:
-            disease_mappings[dis] = num
-        return disease_mappings
-
-    def get_all_unique_diseases(self):
-        """Get all unique diseases that are known to the network.
-
-        :return: All unique disease identifiers.
-        """
-        all_disease_ids = [
-            self.network.graph.nodes[node]['associated_diseases']
-            for node
-            in self.network.graph
-            if ('associated_diseases' in self.network.graph.nodes[node] and
-                self.network.graph.nodes[node]['associated_diseases'])
-        ]
-        # remove None values from list
-        all_disease_ids = [lst for lst in all_disease_ids if lst is not None]
-        # flatten list of lists, get unique elements
-        all_disease_ids = set([
-            phe
-            for _list in all_disease_ids
-            for phe in _list
-            if phe
-        ])
-
-        return list(all_disease_ids)
-
-    def _add_differential_expression_attributes(self, att_ind_start, att_mappings):
-        """Add differential expression information to the attribute mapping dictionary.
-
-        :param int att_ind_start: Start index for enumerating the attributes.
-        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
-        :return: End index for attribute enumeration.
-        """
-        up_regulated_ind = self.network.get_differentially_expressed_genes('up_regulated')
-        down_regulated_ind = self.network.get_differentially_expressed_genes('down_regulated')
-        rest_ind = self.network.get_differentially_expressed_genes('not_diff_expressed')
-
-        self._add_attribute_values(att_ind_start, att_mappings, rest_ind)
-        self._add_attribute_values(att_ind_start + 1, att_mappings, up_regulated_ind)
-        self._add_attribute_values(att_ind_start + 2, att_mappings, down_regulated_ind)
-        return att_ind_start + 3
-
-    @staticmethod
-    def _add_attribute_values(value, att_mappings, indices):
-        """Add an attribute value to the given vertices.
-
-        :param int value: Attribute value.
-        :param dict att_mappings: Dictionary of mappings between vertices and enumerated attributes.
-        :param list indices: Indices of the vertices.
-        """
-        for i in indices:
-            att_mappings[i].append(value)
-
-
-class LabeledNetworkGenerator:
-
-    def __init__(self, network: NetworkNx):
-        self.network = network
-
-    def write_index_labels(self, targets, output_path, sample_scores: dict = None):
-        """Write the mappings between vertex indices and labels(target vs. not) to a file.
-
-        :param list targets: List of known targets.
-        :param str output_path: Path to the output file.
-        :param str sample_scores: Sample scores from OpenTarget.
-        """
-        label_mappings = self.get_index_labels(targets)
-
-        with open(output_path, "w") as file:
-            for k, v in label_mappings.items():
-                if sample_scores:
-                    if self.network.graph.nodes[k]["name"] in sample_scores:
-                        score = self._convert_score_to_weight(
-                            v,
-                            sample_scores[self.network.graph.nodes[k]["name"]]
-                        )
-                        print(k, v, score, sep='\t', file=file)
-                    else:
-                        print(k, v, '1.', sep='\t', file=file)
-                else:
-                    print(k, v, sep='\t', file=file)
-
-    def get_index_labels(self, targets):
-        """Get the labels(known target/not) mapped to indices.
-
-        :param targets: List of known targets
-        :return: Dictionary of index-label mappings
-        """
-        gene_ind = {
-            self.network.graph.nodes[node]['name']: node
-            for node
-            in self.network.graph
-            if ('name' in self.network.graph.nodes[node])
-        }
-        target_ind = [node for name, node in gene_ind.items() if name in targets]
-        rest_ind = [node for name, node in gene_ind.items() if name not in targets]
-        label_mappings = {i: 1 for i in target_ind}
-        label_mappings.update({i: 0 for i in rest_ind})
-        return label_mappings
-
-    @staticmethod
-    def _convert_score_to_weight(label: int, score: float) -> float:
-        """Convert the association score into a weight for the weighted classification. If the
-        label is positive the weight is the score. If negative, the weight is 1 - score. This means,
-        a high score for a negative label will imply some uncertainty about it being a target.
-
-        :param label: 1 for positive, 0 for negative.
-        :param score: The association score.
-        :return: The weight.
-        """
-        if label:
-            return score
-        else:
-            return 1 - score
