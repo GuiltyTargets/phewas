@@ -18,9 +18,8 @@ from guiltytargets.pipeline import rank_targets, write_gat2vec_input_files
 from guiltytargets.ppi_network_annotation import generate_ppi_network, parse_dge
 from guiltytargets.ppi_network_annotation.parsers import parse_association_scores, parse_gene_list
 from guiltytargets_phewas.utils import generate_bel_network
+from guiltytargets_phewas.constants import *
 
-# from constants
-DATA_BASE_DIR = r'c:/users/mauricio/thesis/data'
 
 ppi_edge_min_confidence = 0.0
 lfc_cutoff = 1.5
@@ -49,7 +48,7 @@ logging.getLogger('pybel.parser').setLevel(logging.CRITICAL)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-fh = logging.FileHandler('optimize_parameters_ad.log')
+fh = logging.FileHandler('string_vs_bel.log')
 fh.setLevel(logging.DEBUG)
 # create console handler with a higher log level
 ch = logging.StreamHandler()
@@ -77,6 +76,7 @@ assert os.path.isfile(targets_file)
 assert os.path.isdir(g2v_path)
 assert os.path.isfile(assoc_file)
 assert os.path.isfile(phewas_path)
+
 
 def do_rankings(
         network,
@@ -106,9 +106,8 @@ def do_rankings(
         targets=targets,
         home_dir=g2v_path,
     )
-    # TODO Use nested
-    # for ev_method in ['cv', 'nested_cv', 'nested_svm']:
-    for ev_method in ['cv', 'svm']:
+    for ev_method in ['cv', 'nested_cv', 'nested_svm']:
+        part_time = time.time()
         metrics_df, _ = rank_targets(
             directory=g2v_path,
             network=network,
@@ -118,8 +117,10 @@ def do_rankings(
             dimension=dimension,
             window_size=window_size,
         )
+        logger.debug(f'{ev_method} ran in {part_time - time.time()} s')
         auc_df[ev_method] = metrics_df['auc']
         aps_df[ev_method] = metrics_df['aps']
+        logger.debug(metrics_df)
     # Weighted
     write_gat2vec_input_files(
         network=network,
@@ -127,8 +128,8 @@ def do_rankings(
         home_dir=g2v_path,
         assoc_score=assoc_score,
     )
-    # for ev_method in ['nested_cv', 'nested_svm']:
-    for ev_method in ['cv', 'svm']:
+    for ev_method in ['nested_cv', 'nested_svm']:
+        part_time = time.time()
         metrics_df, _ = rank_targets(
             directory=g2v_path,
             network=network,
@@ -138,9 +139,11 @@ def do_rankings(
             dimension=dimension,
             window_size=window_size,
         )
+        logger.debug(f'{ev_method} ran in {part_time - time.time()} s')
         label = 'w_' + ev_method
         auc_df[label] = metrics_df['auc']
         aps_df[label] = metrics_df['aps']
+        logger.debug(metrics_df)
     return auc_df, aps_df
 
 
@@ -151,12 +154,12 @@ def prepare_plot(df_bel: pd.DataFrame, df_ppi: pd.DataFrame, title: str, out_fil
     melt = df_join.melt(
         id_vars='ds',
         var_name='columns',
-        # TODO Use nested
         value_vars=[
             'cv',
-            'svm',
-            'w_cv',
-            'w_svm',
+            'nested_cv',
+            'nested_svm',
+            'w_nested_cv',
+            'w_nested_svm',
         ]
     )
     fig = sns.boxplot(y='value', x='columns', data=melt, hue='ds').get_figure()
