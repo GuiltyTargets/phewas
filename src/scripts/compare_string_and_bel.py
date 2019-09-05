@@ -3,48 +3,25 @@
 """Runs the ranking of drug targets using the HumanBase data as PPI network."""
 
 import logging
-import numpy as np
 import os
-import seaborn as sns
 import time
 import traceback
 import warnings
 
-import matplotlib.pyplot as plt
+# Suppress warnings and BEL parsing errors
+warnings.simplefilter('ignore')
+# Suppress Pybel parsing errors
+logging.getLogger('pybel.parser').setLevel(logging.CRITICAL)
+logging.getLogger('pybel_tools.assembler.reified_graph.assembler').setLevel(logging.CRITICAL)
+
 import pandas as pd
-from pybel import from_json_file
+import seaborn as sns
 
 from guiltytargets.pipeline import rank_targets, write_gat2vec_input_files
 from guiltytargets.ppi_network_annotation import generate_ppi_network, parse_dge
 from guiltytargets.ppi_network_annotation.parsers import parse_association_scores, parse_gene_list
 from guiltytargets_phewas.utils import generate_bel_network
 from guiltytargets_phewas.constants import *
-
-
-ppi_edge_min_confidence = 0.0
-lfc_cutoff = 1.5
-
-# for differential expression (AD files)
-base_mean_name_ad = 'baseMean'
-log_fold_change_name_ad = 'log2FoldChange'
-adjusted_p_value_name_ad = 'padj'
-entrez_id_name_ad = 'entrez'
-
-# for differential expression (other files)
-base_mean_name_dis = None
-log_fold_change_name_dis = 'logFC'
-adjusted_p_value_name_dis = 'adj.P.Val'
-entrez_id_name_dis = 'Gene.ID'
-
-# for differential expression (any)
-max_padj = 0.05
-split_char = '///'
-diff_type = 'all'
-
-# Suppress warnings and BEL parsing errors
-warnings.simplefilter('ignore')
-# Suppress Pybel parsing errors
-logging.getLogger('pybel.parser').setLevel(logging.CRITICAL)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -56,7 +33,7 @@ ch.setLevel(logging.INFO)
 logger.addHandler(ch)
 logger.addHandler(fh)
 
-assert os.path.isdir(DATA_BASE_DIR), "Update your data_basedir folder for this environment."
+assert os.path.isdir(DATA_BASE_DIR), "Update your data_base_dir folder for this environment."
 
 dge = 'BM10'
 
@@ -98,7 +75,7 @@ def do_rankings(
     """
     auc_df, aps_df = pd.DataFrame(), pd.DataFrame()
     targets = targets or parse_gene_list(targets_file, network)
-    logger.debug(f'Number of targets being used for the STRING network: {len(targets)}')
+    logger.debug(f'Number of targets being used for the network: {len(targets)}')
     assoc_score = assoc_file and parse_association_scores(assoc_file)
     # Unweighted
     write_gat2vec_input_files(
@@ -117,7 +94,7 @@ def do_rankings(
             dimension=dimension,
             window_size=window_size,
         )
-        logger.debug(f'{ev_method} ran in {part_time - time.time()} s')
+        logger.debug(f'{ev_method} ran in {time.time() - part_time} s')
         auc_df[ev_method] = metrics_df['auc']
         aps_df[ev_method] = metrics_df['aps']
         logger.debug(metrics_df)
@@ -139,7 +116,7 @@ def do_rankings(
             dimension=dimension,
             window_size=window_size,
         )
-        logger.debug(f'{ev_method} ran in {part_time - time.time()} s')
+        logger.debug(f'{ev_method} ran in {time.time() - part_time} s')
         label = 'w_' + ev_method
         auc_df[label] = metrics_df['auc']
         aps_df[label] = metrics_df['aps']
@@ -207,6 +184,7 @@ def get_bel_results(targets) -> (pd.DataFrame, pd.DataFrame):
         min_log2_fold_change=min_log2_fold_change,
         disease_associations_path=phewas_path
     )
+    logger.info(f'Nodes {len(network.graph.nodes)}')
 
     return do_rankings(
         network,
