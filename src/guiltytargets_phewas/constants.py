@@ -21,3 +21,8 @@ base_mean_name_dis = None
 log_fold_change_name_dis = 'logFC'
 adjusted_p_value_name_dis = 'adj.P.Val'
 entrez_id_name_dis = 'Gene.ID'
+
+# for differential expression (any)
+max_padj = 0.05
+split_char = '///'
+diff_type = 'all'
