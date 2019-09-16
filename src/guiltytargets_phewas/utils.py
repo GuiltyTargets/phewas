@@ -5,9 +5,12 @@
 import logging
 from os import listdir
 from os.path import isfile, join
+import time
+import traceback
 from typing import Dict, List, Optional
 
 import bio2bel_phewascatalog
+from igraph import Graph
 import mygene
 import networkx as nx
 import pandas as pd
@@ -21,7 +24,7 @@ from guiltytargets.ppi_network_annotation.model.gene import Gene
 from guiltytargets.ppi_network_annotation.parsers import parse_disease_ids, parse_disease_associations
 from .network_phewas import AttributeFileGenerator, LabeledNetworkGenerator, NetworkNx
 
-logger = logging.getLogger('main')
+logger = logging.getLogger(__name__)
 
 
 def get_base_dir(basedir, path):
@@ -221,7 +224,7 @@ def get_association_scores(disease_id, outpath, anno_type: str = 'entrezgene') -
     ensembl_list = [a['id'] for a in assoc_simple]
 
     # Obtain the symbols for the genes associated to disease_id
-    id_mappings = get_ensembl_id_to_code_converter(ensembl_list, anno_type)
+    id_mappings = get_converter_to_entrez(ensembl_list, anno_type)
 
     # Get the symbols and the scores
     ensembl_list = [
@@ -235,33 +238,23 @@ def get_association_scores(disease_id, outpath, anno_type: str = 'entrezgene') -
             print(f'{symbol}\t{score}', file=outfile)
 
 
-def get_ensembl_id_to_code_converter(
-        ensembl_list: list,
-        anno_type: str
+def get_converter_to_entrez(
+        query_list: List[str]
 ) -> Dict[str, str]:
-    """Get a converter from Ensembl Id (ENSPxxx) to Entrez id or gene symbol.
+    """Get a converter from a gene field to Entrez id.
 
-    :param ensembl_list: List of genes to query.
-    :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
-    :return: a dictionary with keys as Ensembl identifiers and values as the annotation type required.
+    :param query_list: List of genes to query.
+    :return: a dictionary with the query element as keys and entrez id as values.
     """
     mg = mygene.MyGeneInfo()
-    gene_query = mg.getgenes(ensembl_list, fields=f'query,{anno_type}')
-    """gene_query = mg.querymany(
-        ensembl_list,
-        scopes='symbol',
-        species='human',
-        as_dataframe=True,
-        fields=f'query,{anno_type}'
-    )"""
-
+    gene_query = mg.getgenes(query_list, fields=f'query,entrezgene')
     id_mappings = {
-        g['query']: g[anno_type]
+        g['query']: g['entrezgene']
         for g in gene_query
-        if anno_type in g
+        if 'entrezgene' in g
     }
 
-    print(len(id_mappings))
+    logger.debug(f'get_converter_to_entrez - {len(id_mappings)} mappings')
 
     return id_mappings
 
@@ -383,3 +376,14 @@ def bel_graph_loader(from_dir: str) -> BELGraph:
     bel_graphs = [from_path(file) for file in bel_files]
     return union(bel_graphs)
 
+
+def timed_main_run(main_function, logger_obj=logger):
+    start_time = time.time()
+    logger.info('Starting...')
+    try:
+        main_function()
+    except Exception as e:
+        logger_obj.error(type(e))
+        logger_obj.error(traceback.format_exc())
+    finally:
+        logger_obj.info(f"Total time: {time.time() - start_time}")
