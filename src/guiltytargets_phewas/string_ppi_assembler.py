@@ -2,51 +2,67 @@
 
 """Generates an adjacency file for the PPI network from the STRING database."""
 
+import logging
 from typing import Dict
 
 import pandas as pd
 import psycopg2
+
+from guiltytargets_phewas.constants import string_database, string_host, string_password, string_user
+from guiltytargets_phewas.utils import get_converter_to_entrez, timed_main_run
+
+logger = logging.getLogger(__name__)
 
 
 class StringAssembler:
     def __init__(self):
         self.ppi_url = f'https://stringdb-static.org/download/' \
             f'protein.links.full.v11.0/9606.protein.links.full.v11.0.txt.gz'
-        self.ppi_file = 'C:\\Users\\Mauricio\\Thesis\\9606.protein.links.full.v11.0.txt.gz'
+        self.ppi_file = r'C:\Users\Mauricio\Thesis\data\raw\STRING\9606.protein.links.full.v11.0.txt.gz'
 
-        self.out_cols = ['prot_symbol1', 'prot_symbol2', 'combined_score']
+        self.out_cols = ['protein1', 'protein2', 'combined_score']
 
-        self.conn = psycopg2.connect(
-            host="localhost",
-            database="stringitems",
-            user="postgres",
-            password="123456"
-        )
+        # connection data to STRING database dump
+        self.host = string_host
+        self.database = string_database
+        self.user = string_user
+        self.password = string_password
 
-        self._dir = ""
-
-    def create_adj_file(self, out_path):
+    def create_adj_file(self, out_path, anno_type: str = 'entrezgene') -> None:
         """Create a csv file containing the protein interactions and the score.
 
         Requires the download from the protein network data for the organism Homo Sapiens from
         https://string-db.org/cgi/download.pl?sessionId=xoIrOw0ShV9o&species_text=Homo+sapiens.
 
         :param out_path: Path to the adjacency file (`string.edgelist`).
+        :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
         :return:
         """
-        # s = requests.get(url).content
-
+        assert anno_type in ['symbol', 'entrezgene'], "STRING files can be created as either symbol or entrez ids"
         cols = ['protein1', 'protein2', 'neighborhood', 'neighborhood_transferred', 'fusion',
                 'cooccurence', 'homology', 'coexpression', 'coexpression_transferred',
                 'experiments', 'experiments_transferred', 'database', 'database_transferred',
                 'textmining', 'textmining_transferred', 'combined_score']
         df = pd.read_csv(self.ppi_file, sep=' ', header=0, names=cols)
+
         ensp_to_symbol = self._get_ensembl_id_to_symbol_converter()
-        df.loc[:, 'prot_symbol1'] = pd.Series([ensp_to_symbol[x] for x in df['protein1']])
-        df.loc[:, 'prot_symbol2'] = pd.Series([ensp_to_symbol[x] for x in df['protein2']])
+
+        prot1 = [ensp_to_symbol[x] for x in df['protein1']]
+        prot2 = [ensp_to_symbol[x] for x in df['protein2']]
+
+        if anno_type == 'entrezgene':
+            unique_prots = set(prot1)
+            unique_prots.union(prot2)
+            symbol_to_entrez = get_converter_to_entrez(list(unique_prots))
+            prot1 = [symbol_to_entrez[x] for x in prot1]
+            prot2 = [symbol_to_entrez[x] for x in prot2]
+
+        df.loc[:, 'prot_symbol1'] = pd.Series(prot1)
+        df.loc[:, 'prot_symbol2'] = pd.Series(prot2)
+
         df[self.out_cols].to_csv(out_path, sep='\t', header=False, index=False)
 
-    def _get_ensembl_id_to_symbol_converter(self) -> Dict:
+    def _get_ensembl_id_to_symbol_converter(self) -> Dict[str, str]:
         """Get a converter from Ensembl Id (ENSPxxx) to protein symbol.
 
         Requires previous installation of PostGreSQL and to import the database schema ``items''
@@ -61,15 +77,23 @@ class StringAssembler:
         sql_command += ' WHERE species_id = {}'.format(str(9606))
         sql_command += ';'
 
-        data3 = pd.read_sql(sql_command, self.conn)
+        conn = psycopg2.connect(
+            host=self.host,
+            database=self.database,
+            user=self.user,
+            password=self.password
+        )
+        data = pd.read_sql(sql_command, conn)
+        conn.close()
 
-        return dict(data3[['protein_external_id', 'preferred_name']].values)
+        return dict(data[['protein_external_id', 'preferred_name']].values)
 
 
 def main():
     assembler = StringAssembler()
-    assembler.create_adj_file('string.edgelist')
+    assembler.create_adj_file('string_entrez1.edgelist', 'entrezgene')
+    assembler.create_adj_file('string_symbol.edgelist', 'symbol')
 
 
 if __name__ == '__main__':
-    main()
+    timed_main_run(main, logger)

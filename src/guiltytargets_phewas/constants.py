@@ -2,7 +2,7 @@
 
 """Constants for GuiltyTargets PheWAS."""
 
-DATA_BASE_DIR = r'/home/bit/lacerda/data'
+DATA_BASE_DIR = r'C:/users/mauricio/thesis/data'
 disease_abr = ['ad']
 disease_ids_efo = ['EFO_0000249']
 ot_file = 'ot_entrez.txt'
@@ -26,3 +26,9 @@ entrez_id_name_dis = 'Gene.ID'
 max_padj = 0.05
 split_char = '///'
 diff_type = 'all'
+
+# STRING database
+string_host = "localhost"
+string_database = "stringitems"
+string_user = "postgres"
+string_password = "123456"
