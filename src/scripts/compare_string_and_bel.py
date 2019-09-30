@@ -5,7 +5,6 @@
 import logging
 import os
 import time
-import traceback
 import warnings
 
 # Suppress warnings and BEL parsing errors
@@ -14,13 +13,14 @@ warnings.simplefilter('ignore')
 logging.getLogger('pybel.parser').setLevel(logging.CRITICAL)
 logging.getLogger('pybel_tools.assembler.reified_graph.assembler').setLevel(logging.CRITICAL)
 
+import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
 from guiltytargets.pipeline import rank_targets, write_gat2vec_input_files
 from guiltytargets.ppi_network_annotation import generate_ppi_network, parse_dge
 from guiltytargets.ppi_network_annotation.parsers import parse_association_scores, parse_gene_list
-from guiltytargets_phewas.utils import generate_bel_network
+from guiltytargets_phewas.utils import generate_bel_network, timed_main_run
 from guiltytargets_phewas.constants import *
 
 logger = logging.getLogger(__name__)
@@ -116,8 +116,8 @@ def do_rankings(
             dimension=dimension,
             window_size=window_size,
         )
-        logger.debug(f'{ev_method} ran in {time.time() - part_time} s')
         label = 'w_' + ev_method
+        logger.debug(f'{label} ran in {time.time() - part_time} s')
         auc_df[label] = metrics_df['auc']
         aps_df[label] = metrics_df['aps']
         logger.debug(metrics_df)
@@ -202,16 +202,9 @@ def main():
     auc_ppi_df, aps_ppi_df = get_string_results(targets_list)
 
     prepare_plot(df_bel=auc_bel_df, df_ppi=auc_ppi_df, title='AUROC results', out_file='comparison_str_bel_auc.png')
+    plt.close()
     prepare_plot(df_bel=aps_bel_df, df_ppi=aps_ppi_df, title='AUPRC results', out_file='comparison_str_bel_aps.png')
 
 
 if __name__ == '__main__':
-    start_time = time.time()
-    logger.info('Starting...')
-    try:
-        main()
-    except Exception as e:
-        logger.error(type(e))
-        logger.error(traceback.format_exc())
-    finally:
-        logger.info(f"Total time: {time.time() - start_time}")
+    timed_main_run(main, logger)

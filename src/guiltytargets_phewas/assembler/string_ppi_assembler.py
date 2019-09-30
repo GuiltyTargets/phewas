@@ -54,6 +54,9 @@ class StringAssembler:
             unique_prots = set(prot1)
             unique_prots.union(prot2)
             symbol_to_entrez = get_converter_to_entrez(list(unique_prots))
+            # not found symbols are not converted
+            not_found = unique_prots.difference(symbol_to_entrez.keys())
+            symbol_to_entrez.update({prot: prot for prot in not_found})
             prot1 = [symbol_to_entrez[x] for x in prot1]
             prot2 = [symbol_to_entrez[x] for x in prot2]
 
@@ -92,7 +95,7 @@ class StringAssembler:
 def main():
     assembler = StringAssembler()
     assembler.create_adj_file('string_entrez1.edgelist', 'entrezgene')
-    assembler.create_adj_file('string_symbol.edgelist', 'symbol')
+    # assembler.create_adj_file('string_symbol.edgelist', 'symbol')
 
 
 if __name__ == '__main__':
