@@ -5,6 +5,7 @@
 import logging
 from typing import Dict
 
+import bio2bel_phewascatalog
 import pandas as pd
 import psycopg2
 
@@ -13,8 +14,14 @@ from guiltytargets_phewas.utils import get_converter_to_entrez, timed_main_run
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    'StringAssembler',
+    'generate_phewas_file'
+]
+
 
 class StringAssembler:
+
     def __init__(self):
         self.ppi_url = f'https://stringdb-static.org/download/' \
             f'protein.links.full.v11.0/9606.protein.links.full.v11.0.txt.gz'
@@ -90,6 +97,66 @@ class StringAssembler:
         conn.close()
 
         return dict(data[['protein_external_id', 'preferred_name']].values)
+
+
+def generate_phewas_file(out_path: str, anno_type: str = 'symbol'):
+    """Create a file with gene-disease association from PheWAS data.
+
+    :param out_path: Path where the file will be created.
+    :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
+    :return:
+    """
+    phewas_manager = bio2bel_phewascatalog.Manager()
+    pw_dict = phewas_manager.to_dict()
+    if anno_type == 'entrezgene':
+        to_entrez = get_converter_to_entrez(list(pw_dict.keys()))
+        pw_dict = {
+            entrez: pw_dict[symbol]
+            for symbol, entrez
+            in to_entrez.items()
+        }
+    with open(out_path, 'w') as file:
+        for target, diseaselist in pw_dict.items():
+            for disease in diseaselist:
+                print(f'{target} {disease[1]}', file=file)
+
+
+def generate_disease_gene_association_file(disease_id, outpath, anno_type: str = 'entrezgene'):
+    """Obtain the association scores from the specified disease that are
+    stored in the OpenTargets database.
+
+    :param disease_id: The EFO code to the disease.
+    :param outpath: The path to the file to be created.
+    :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
+    :return:
+    """
+    ot = OpenTargetsClient()
+    assoc = ot.get_associations_for_disease(
+        disease_id,
+        fields=['association_scoreoverall', 'target.id']
+    )
+    assoc_simple = [
+        {
+            'id': a['target']['id'],
+            'score': a['association_score']['overall']
+        }
+        for a in assoc
+    ]
+    ensembl_list = [a['id'] for a in assoc_simple]
+
+    # Obtain the symbols for the genes associated to disease_id
+    id_mappings = get_converter_to_entrez(ensembl_list)
+
+    # Get the symbols and the scores
+    ensembl_list = [
+        (id_mappings[a['id']], a['score'])
+        for a in assoc_simple
+        if a['id'] in id_mappings
+    ]
+
+    with open(outpath, 'w+') as outfile:
+        for symbol, score in ensembl_list:
+            print(f'{symbol}\t{score}', file=outfile)
 
 
 def main():

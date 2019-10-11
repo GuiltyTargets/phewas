@@ -44,8 +44,6 @@ class NetworkNx:
         self.max_l2fc = max_l2fc or -1.0
         self.min_l2fc = min_l2fc or +1.0
 
-        print('networkphewas.NetworkNx - Test directed/undirected')
-        print('directed')
         self.graph = nx.relabel.convert_node_labels_to_integers(
             reified_graph,
             label_attribute='bel_node'
@@ -78,7 +76,6 @@ class NetworkNx:
         irrelevant = [node for node in self.graph if node not in relevant_entrez]
         self.graph.remove_nodes_from(irrelevant)
         # TODO Remove disconnected nodes
-        #
         raise Exception('Not ready to filter genes using NetworkX')
 
     def _add_vertex_attributes(
@@ -99,7 +96,7 @@ class NetworkNx:
             cur_node = self.graph.nodes[node]
             if isinstance(cur_node['bel_node'], CentralDogma):
                 if cur_node['padj'] < self.max_adj_p:
-                    if cur_node['l2fc'] > self.max_l2fc:
+                    if cur_node['l2fc'] < self.max_l2fc:
                         cur_node['diff_expressed'] = True
                         cur_node['up_regulated'] = True
                         up_regulated += 1
@@ -224,6 +221,7 @@ class NetworkNx:
         return AttributeFileGenerator(self)
 
     def find_genes(self, gene_list: list, anno_type: str = "name"):
+        gene_list = set(gene_list)
         symbols = [
             self.graph.nodes[node]['name']
             for node
@@ -279,11 +277,10 @@ class AttributeFileGenerator:
 
         for node in self.network.graph:
             if (
-                    type(self.network.graph.nodes[node]['bel_node']) == int and
+                    isinstance(self.network.graph.nodes[node]['bel_node'], int) and
                     self.network.graph.nodes[node]['label'] in predicate_mappings
             ):
-                test = predicate_mappings[self.network.graph.nodes[node]['label']]
-                att_mappings[node].append(test)
+                att_mappings[node].append(predicate_mappings[self.network.graph.nodes[node]['label']])
         return att_ind_start + len(predicate_mappings)
 
     def get_predicate_mappings(self, att_ind_start):
@@ -300,7 +297,7 @@ class AttributeFileGenerator:
             predicate_mappings[pre] = num
         return predicate_mappings
 
-    def get_all_unique_predicates(self):
+    def get_all_unique_predicates(self) -> list:
         """Get all unique predicates that are known to the network.
 
         :return: All unique predicate identifiers.
@@ -312,8 +309,7 @@ class AttributeFileGenerator:
             in self.network.graph
             if type(self.network.graph.nodes[node]['bel_node']) == int
         }
-        # remove None values and return as list
-        return [lst for lst in all_predicate_labels if lst]
+        return list(filter(None, all_predicate_labels))
 
     def _add_disease_association_attributes(self, att_ind_start, att_mappings):
         """Add disease association information to the attribute mapping dictionary.
@@ -397,6 +393,11 @@ class AttributeFileGenerator:
         """
         for i in indices:
             att_mappings[i].append(value)
+
+    def _add_go_terms_attributes(self):
+        """"""
+        # Get all unique GO terms
+        #
 
 
 class LabeledNetworkGenerator:
