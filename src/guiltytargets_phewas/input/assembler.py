@@ -6,6 +6,8 @@ import logging
 from typing import Dict
 
 import bio2bel_phewascatalog
+import mygene
+from opentargets import OpenTargetsClient
 import pandas as pd
 import psycopg2
 
@@ -159,10 +161,38 @@ def generate_disease_gene_association_file(disease_id, outpath, anno_type: str =
             print(f'{symbol}\t{score}', file=outfile)
 
 
+def generate_targets_file(disease_id, outpath, anno_type: str = 'entrezgene') -> None:
+    """Creates a disease list
+
+    :param disease_id: EFO code from the disease.
+    :param outpath:
+    :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
+    :return:
+    """
+    ot = OpenTargetsClient()
+    assoc = ot.get_associations_for_disease(
+        disease_id,
+        fields=['association_scoredatatypes', 'target.id']
+    ).filter(
+        datatype='known_drug'
+    )
+    ensembl_list = [a['target']['id'] for a in assoc]
+
+    # TODO use the converters.get_converter_to_entrez
+    mg = mygene.MyGeneInfo()
+    id_mappings = mg.getgenes(ensembl_list, fields=anno_type)
+
+    with open(outpath, 'w+') as outfile:
+        for mapping in id_mappings:
+            if anno_type in mapping.keys():
+                outfile.write(mapping[anno_type])
+                outfile.write('\n')
+
+
 def main():
     assembler = StringAssembler()
     assembler.create_adj_file('string_entrez1.edgelist', 'entrezgene')
-    # assembler.create_adj_file('string_symbol.edgelist', 'symbol')
+    # input.create_adj_file('string_symbol.edgelist', 'symbol')
 
 
 if __name__ == '__main__':

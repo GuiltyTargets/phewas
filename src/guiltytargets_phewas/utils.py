@@ -7,7 +7,8 @@ from os import listdir
 from os.path import isfile, join
 import time
 import traceback
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Union
+from urllib import parse, request
 
 import bio2bel_phewascatalog
 from igraph import Graph
@@ -21,8 +22,10 @@ from pybel_tools.assembler.reified_graph.assembler import reify_bel_graph
 
 from guiltytargets.gat2vec import gat2vec_paths
 from guiltytargets.ppi_network_annotation.model.gene import Gene
-from guiltytargets.ppi_network_annotation.parsers import parse_disease_ids, parse_disease_associations
-from .network_phewas import AttributeFileGenerator, LabeledNetworkGenerator, NetworkNx
+from guiltytargets.ppi_network_annotation.parsers import (
+    parse_disease_ids, parse_disease_associations
+)
+from .reified_network import AttributeFileGenerator, LabeledNetworkGenerator, NetworkNx
 
 logger = logging.getLogger(__name__)
 
@@ -59,17 +62,23 @@ def generate_bel_network(
         min_log2_fold_change: float,
         current_disease_ids_path: Optional[str] = None,
         disease_associations_path: Optional[str] = None,
+        collapse: str = None
 ):
     """Generate the protein-protein interaction network.
 
-    :return Network: Protein-protein interaction network with information on differential expression.
+    :param bel_graph_path:
+    :param dge_list:
+    :param max_adj_p:
+    :param max_log2_fold_change:
+    :param min_log2_fold_change:
+    :param current_disease_ids_path:
+    :param disease_associations_path:
+    :param collapse:
+    :return: Interaction network with information on differential expression.
     """
     # Load and reify the graph
     bel_graph = bel_graph_loader(bel_graph_path)
-    print('utils.generate_bel_network Test collapsing network before reifying')
-    # collapse_all_variants(bel_graph)
-    print('Not Collapsed!')
-    reified = reify_bel_graph(bel_graph)
+    reified = reify_bel_graph(bel_graph, collapse=collapse)
 
     if disease_associations_path is not None:
         if current_disease_ids_path:
@@ -172,8 +181,8 @@ def write_adj_file_attribute(graph, filepath: str, att_mappings: Dict, pred_mapp
             print(line, file=file)
 
 
-# Copied from GuiltyTargets/reproduction
-def download_for_disease(disease_id, outpath, anno_type: str = 'entrezgene') -> None:
+# TODO Renamed from download_for_disease. Moved to assembler. Delete.
+def generate_targets_file(disease_id, outpath, anno_type: str = 'entrezgene') -> None:
     """Creates a disease list
 
     :param disease_id: EFO code from the disease.
@@ -200,14 +209,15 @@ def download_for_disease(disease_id, outpath, anno_type: str = 'entrezgene') -> 
                 outfile.write('\n')
 
 
-def get_association_scores(disease_id, outpath, anno_type: str = 'entrezgene') -> None:
+# TODO Was renamed from get_association scores. Moved to input. Delete.
+def generate_disease_gene_association_file(disease_id, outpath, anno_type: str = 'entrezgene'):
     """Obtain the association scores from the specified disease that are
     stored in the OpenTargets database.
 
     :param disease_id: The EFO code to the disease.
     :param outpath: The path to the file to be created.
     :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
-    :return:b
+    :return:
     """
     ot = OpenTargetsClient()
     assoc = ot.get_associations_for_disease(
@@ -224,7 +234,7 @@ def get_association_scores(disease_id, outpath, anno_type: str = 'entrezgene') -
     ensembl_list = [a['id'] for a in assoc_simple]
 
     # Obtain the symbols for the genes associated to disease_id
-    id_mappings = get_converter_to_entrez(ensembl_list, anno_type)
+    id_mappings = get_converter_to_entrez(ensembl_list)
 
     # Get the symbols and the scores
     ensembl_list = [
@@ -238,6 +248,7 @@ def get_association_scores(disease_id, outpath, anno_type: str = 'entrezgene') -
             print(f'{symbol}\t{score}', file=outfile)
 
 
+# TODO Moved to parsers. Delete.
 def get_converter_to_entrez(
         query_list: List[str]
 ) -> Dict[str, str]:
@@ -247,18 +258,21 @@ def get_converter_to_entrez(
     :return: a dictionary with the query element as keys and entrez id as values.
     """
     mg = mygene.MyGeneInfo()
-    gene_query = mg.getgenes(query_list, fields=f'query,entrezgene')
+    gene_query = mg.querymany(query_list, scopes='symbol,entrezgene,ensembl.gene', species=9606, returnall=True)
+    gene_query = [x for x in gene_query['out'] if 'entrezgene' in x]
     id_mappings = {
         g['query']: g['entrezgene']
         for g in gene_query
         if 'entrezgene' in g
     }
 
+    logger.debug(f'get_converter_to_entrez - {len(query_list) - len(id_mappings)} not found.')
     logger.debug(f'get_converter_to_entrez - {len(id_mappings)} mappings')
 
     return id_mappings
 
 
+# TODO moved this to parsers (GuiltyTargets). Delete.
 def parse_gene_list_reified(path: str, graph: nx.Graph) -> list:
     """Parse a list of genes and return them if they are in the network.
 
@@ -285,8 +299,7 @@ def parse_gene_list_reified(path: str, graph: nx.Graph) -> list:
     return list(genes.intersection(symbols))
 
 
-# TODO Move the call to this to NetworkNx/Network?
-# TODO Then move this to parsers.
+# TODO moved this to parsers (GuiltyTargets). Delete.
 def parse_gene_list(path: str, network) -> list:
     """Parse a list of genes and return them if they are in the network.
 
@@ -326,15 +339,23 @@ def write_labels_file(outfile: str, graph: nx.Graph, target_list: List[str]):
                 print(f'{node}\t0', file=file)
 
 
-# parsers
-def generate_phewas_file(out_path: str):
+# TODO Moved to parsers. Delete.
+def generate_phewas_file(out_path: str, anno_type: str = 'symbol'):
     """Create a file with gene-disease association from PheWAS data.
 
     :param out_path: Path where the file will be created.
+    :param anno_type: `entrezgene` for Entrez Id or `symbol` for Gene symbol.
     :return:
     """
     phewas_manager = bio2bel_phewascatalog.Manager()
     pw_dict = phewas_manager.to_dict()
+    if anno_type == 'entrezgene':
+        to_entrez = get_converter_to_entrez(list(pw_dict.keys()))
+        pw_dict = {
+            entrez: pw_dict[symbol]
+            for symbol, entrez
+            in to_entrez.items()
+        }
     with open(out_path, 'w') as file:
         for target, diseaselist in pw_dict.items():
             for disease in diseaselist:
@@ -359,6 +380,7 @@ def get_phenotype_list(rbg: nx.Graph) -> List:
     add_disease_attribute(annotated_graph, pw_dict)
 
 
+# TODO Moved to Parsers. Delete.
 def bel_graph_loader(from_dir: str) -> BELGraph:
     """Obtains a combined BELGraph from all the BEL documents in one folder.
 
@@ -377,9 +399,100 @@ def bel_graph_loader(from_dir: str) -> BELGraph:
     return union(bel_graphs)
 
 
+# TODO moved to converters. Delete.
+def uniprot_id_to_entrez_id_converter(uniprot_id_list: Union[List[str], Set[str]]) -> Dict:
+    """Converts a list of gene identifiers, from Uniprot to Entrez, using the Uniprot API.
+
+    :param uniprot_id_list: The list of identifiers.
+    :return: A converter dictionary from Uniprot id to Entrez id.
+    """
+    url = 'https://www.uniprot.org/uploadlists/'
+    params = {
+        'from': 'ACC+ID',
+        'to': 'P_ENTREZGENEID',
+        'format': 'tab',
+        'query': ' '.join(uniprot_id_list)
+    }
+    data = parse.urlencode(params)
+    data = data.encode('utf-8')
+    req = request.Request(url, data)
+    with request.urlopen(req) as f:
+        response = f.read()
+    conv = {
+        line.split('\t')[0]: line.split('\t')[1]
+        for line
+        in response.decode('utf-8').split('\n')
+        if line
+    }
+    return conv
+
+
+# to be used for link prediction
+def merge_by_attribute(g1: Graph, g2: Graph, v_attr_name) -> Graph:
+    """Merge two graphs by one of the attributes (`name` or `symbol`).
+
+    :param g1: Graph 1.
+    :param g2: Graph 2.
+    :param v_attr_name: The name of the attribute to be used to merge.
+    :return: The merged graph.
+    """
+    assert len(set(g1.vs[v_attr_name])) == len(g1.vs[v_attr_name]), "Merging attribute must be unique"
+    assert len(set(g2.vs[v_attr_name])) == len(g2.vs[v_attr_name]), "Merging attribute must be unique"
+
+    v_attr_1 = g1.vs[v_attr_name]
+    v_attr_2 = g2.vs[v_attr_name]
+
+    edge_list_by_attribute_1 = set([
+        tuple(sorted([v_attr_1[u], v_attr_1[v]]) + [g1.es[(u, v)]['edge_type']])
+        for u, v
+        in g1.get_edgelist()
+    ])
+    edge_list_by_attribute_2 = set([
+        tuple(sorted([v_attr_2[u], v_attr_2[v]]) + [g1.es[(u, v)]['edge_type']])
+        for u, v
+        in g2.get_edgelist()
+    ])
+
+    # Edges should not coincide (different edge types)
+    edge_list_by_attribute_merged = edge_list_by_attribute_1.union(edge_list_by_attribute_2)
+
+    v_attr_merged = sorted(list(set(v_attr_2).union(set(v_attr_1))))
+
+    attribute_to_ind = {v_attr_merged: i for i, v_attr_merged in enumerate(v_attr_merged)}
+    edge_list_merged = {
+        (attribute_to_ind[i], attribute_to_ind[j]): e_type
+        for i, j, e_type
+        in edge_list_by_attribute_merged
+    }
+
+    graph_merged = Graph(list(edge_list_merged.keys()))
+    for edge, e_type in edge_list_merged.items():
+        graph_merged.es[edge]['edge_type'] = e_type
+    graph_merged.vs[v_attr_name] = v_attr_merged
+
+    # Include attributes that are in both g1 and g2. If different attribute values are present in a vertex,
+    # then the one of g1 is used
+    for attr_name_other in set(g2.vs.attributes()).intersection(set(g1.vs.attributes())).difference([v_attr_name]):
+        attr_other = dict()
+        for v in g2.vs():
+            attr_other[attribute_to_ind[v[v_attr_name]]] = v[attr_name_other]
+
+        for v in g1.vs():
+            attr_other[attribute_to_ind[v[v_attr_name]]] = v[attr_name_other]
+        graph_merged.vs[attr_name_other] = [attr_other[i] for i in range(graph_merged.vcount())]
+
+    return graph_merged
+
+
 def timed_main_run(main_function, logger_obj=logger):
+    """Times the run of a function.
+
+    :param main_function: The function to be run.
+    :param logger_obj: The logger that will produce the result.
+    :return:
+    """
     start_time = time.time()
-    logger.info('Starting...')
+    logger_obj.info('Starting...')
     try:
         main_function()
     except Exception as e:
