@@ -3,6 +3,8 @@
 """Generates an adjacency file for the PPI network from the STRING database."""
 
 import logging
+import os
+import requests
 from typing import Dict
 
 import bio2bel_phewascatalog
@@ -11,14 +13,17 @@ from opentargets import OpenTargetsClient
 import pandas as pd
 import psycopg2
 
-from guiltytargets_phewas.constants import string_database, string_host, string_password, string_user
-from guiltytargets_phewas.utils import get_converter_to_entrez, timed_main_run
+from ..constants import *
+from ..utils import get_converter_to_entrez, timed_main_run
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     'StringAssembler',
-    'generate_phewas_file'
+    'generate_phewas_file',
+    'generate_targets_file',
+    'generate_disease_gene_association_file',
+    'download_disease_ontology',
 ]
 
 
@@ -27,7 +32,7 @@ class StringAssembler:
     def __init__(self):
         self.ppi_url = f'https://stringdb-static.org/download/' \
             f'protein.links.full.v11.0/9606.protein.links.full.v11.0.txt.gz'
-        self.ppi_file = r'C:\Users\Mauricio\Thesis\data\raw\STRING\9606.protein.links.full.v11.0.txt.gz'
+        self.ppi_file = os.path.join(DATA_BASE_DIR, 'STRING', '9606.protein.links.full.v11.0.txt.gz')
 
         self.out_cols = ['protein1', 'protein2', 'combined_score']
 
@@ -187,6 +192,15 @@ def generate_targets_file(disease_id, outpath, anno_type: str = 'entrezgene') ->
             if anno_type in mapping.keys():
                 outfile.write(mapping[anno_type])
                 outfile.write('\n')
+
+
+def download_disease_ontology():
+    """"""
+    url = 'https://raw.githubusercontent.com/DiseaseOntology/HumanDiseaseOntology/master/src/ontology/HumanDO.obo'
+    local_file = os.path.join(DATA_BASE_DIR, 'DO', 'HumanDO.obo')  # TODO move to constants?
+    content = requests.get(url, stream=True).content
+    with open(local_file, 'wb') as file:
+        file.write(content)
 
 
 def main():
