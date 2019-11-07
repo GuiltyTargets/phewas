@@ -53,8 +53,8 @@ def dataset_to_disease_abv(dataset: str) -> str:
 
 
 def dge_file(dge_code: str) -> str:
-    file = 'DifferentialExpression' + ('.csv' if dge_code in AD_DGE_DATASETS else '.tsv')
-    return os.path.join(dge_base_path, dge_code, file)
+    ext = '.csv' if dataset_to_disease_abv(dge_code) == 'ad' else '.tsv'
+    return os.path.join(dge_base_path, dge_code, 'DifferentialExpression' + ext)
 
 
 def targets_file(disease):
@@ -106,15 +106,17 @@ def get_ppi_results(ppi_graph_path: str, dataset: str, evaluation: str = 'cv') -
 
 def main():
     """ """
-    for key, datasets in DGE_DATASETS.items():
-        results = pd.DataFrame()
+    results = pd.DataFrame()
+    for datasets in DGE_DATASETS.values():
         for ds in datasets:
             for ev_method in ev_methods:
                 part_df = get_ppi_results(string_graph_path, ds, evaluation=ev_method)
                 results = results.append(part_df, ignore_index=True)
-        results.to_csv(os.path.join(g2v_path, f'results_df_{key}.tsv'), sep='\t')
-        # Prepare results
-        for metric in ['auc', 'aps']:
+
+    # Prepare results
+    results.to_csv(os.path.join(g2v_path, f'results_df.tsv'), sep='\t')
+    for metric in ['auc', 'aps']:
+        for key, datasets in DGE_DATASETS.items():
             fig = sns.boxplot(
                 data=results,
                 x='dge',
