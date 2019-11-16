@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 
-""""""
+"""Some code converters."""
 
 import logging
+import os
+
 import mygene
+import obonet
 from typing import Dict, List, Set, Union
 from urllib import parse, request
+
+from .constants import DATA_BASE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -58,3 +63,21 @@ def get_converter_to_entrez(
     logger.debug(f'get_converter_to_entrez - {len(id_mappings)} mappings')
 
     return id_mappings
+
+
+def get_converter_to_disease_ontology() -> Dict[str, str]:
+    """Get a converter from a gene field to Entrez id.
+
+    :param query_list: List of genes to query.
+    :return: a dictionary with the query element as keys and entrez id as values.
+    """
+    obo_file = os.path.join(DATA_BASE_DIR, 'DO', 'HumanDO.obo')  # TODO paths
+    graph = obonet.read_obo(obo_file)
+    converter = {
+        xref: id_
+        for id_, data
+        in graph.nodes(data=True)
+        if 'xref' in data
+        for xref in data['xref']
+    }
+    return converter
