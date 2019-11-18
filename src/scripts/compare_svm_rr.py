@@ -118,7 +118,7 @@ def main():
     for metric in ['auc', 'aps']:
         for key, datasets in DGE_DATASETS.items():
             fig = sns.boxplot(
-                data=results,
+                data=results[results['dge'].isin(datasets)],
                 x='dge',
                 y=metric,
                 hue='eval'
