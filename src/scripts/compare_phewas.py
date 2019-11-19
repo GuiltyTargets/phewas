@@ -8,7 +8,6 @@ default parameters and logistic regression."""
 import logging
 import os
 import warnings
-import sys
 
 # Suppress warnings
 warnings.simplefilter('ignore')
@@ -44,7 +43,7 @@ g2v_path = os.path.join(DATA_BASE_DIR, 'gat2vec_files', 'part6')
 phewas_path = os.path.join(DATA_BASE_DIR, 'phewas_catalog', 'phewas_entrez.txt')
 string_graph_path = os.path.join(string_base_path, 'string_entrez.edgelist')
 
-min_log2_fold_change, max_log2_fold_change = -1 * lfc_cutoff, lfc_cutoff
+max_log2_fold_change, min_log2_fold_change = -1 * lfc_cutoff, lfc_cutoff
 
 
 # TODO Move these functions to a common file to be used by the scripts.
@@ -122,14 +121,21 @@ def main():
     results = pd.DataFrame()
     for key, dataset in DGE_DATASETS.items():
         for ds in dataset:
-            for use_phewas in [None, phewas_path]:
-                # with
-                part_df = get_ppi_results(
-                    string_graph_path,
-                    ds,
-                    phewas=use_phewas
-                )
-                results = results.append(part_df, ignore_index=True)
+            # Weighted
+            part_df = get_ppi_results(
+                string_graph_path,
+                ds,
+                evaluation='nested_cv',
+                phewas=phewas_path
+            )
+            results = results.append(part_df, ignore_index=True)
+            # Unweighted
+            part_df = get_ppi_results(
+                string_graph_path,
+                ds,
+                evaluation='nested_cv'
+            )
+            results = results.append(part_df, ignore_index=True)
     results.to_csv(os.path.join(g2v_path, f'results_df.tsv'), sep='\t')
     # Prepare results
 
