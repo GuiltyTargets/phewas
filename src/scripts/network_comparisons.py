@@ -45,11 +45,10 @@ targets_base_path = os.path.join(DATA_BASE_DIR, 'OpenTargets')
 string_base_path =os.path.join(DATA_BASE_DIR, 'STRING')
 
 g2v_path = os.path.join(DATA_BASE_DIR, 'gat2vec_files', 'part1')
-phewas_path = os.path.join(DATA_BASE_DIR, 'phewas_catalog', 'phewas_entrez.txt')
 bel_files = os.path.join(DATA_BASE_DIR, 'bel_data', 'all')  # 126 targets
 string_graph_path = os.path.join(string_base_path, 'string_entrez.edgelist')
 
-min_log2_fold_change, max_log2_fold_change = -1 * lfc_cutoff, lfc_cutoff
+max_log2_fold_change, min_log2_fold_change = -1 * lfc_cutoff, lfc_cutoff
 
 network_alias = {
     'cerebral_cortex_top': 'ctex',
@@ -59,21 +58,6 @@ network_alias = {
     'lung_top': 'hb',
     'central_nervous_system_top': 'hb',
     'string_entrez.edgelist': 'st'
-}
-
-dataset_disease = {
-    'BM10': 'ad',
-    'BM22': 'ad',
-    'BM36': 'ad',
-    'BM44': 'ad',
-    'Mayo_CTX': 'ad',
-    'Mayo_CBE': 'ad',
-    'RosMap': 'ad',
-    'hc': 'hc',
-    'aml': 'aml',
-    'ipf': 'ipf',
-    'lc': 'lc',
-    'ms': 'ms',
 }
 
 # igraph.read requires the files to be gunzipped. Have to do that after downloading.
@@ -99,12 +83,12 @@ def dataset_to_disease_abv(dataset: str) -> str:
 
 
 def dge_file(dge_code: str) -> str:
-    file = 'DifferentialExpression' + ('.csv' if dataset_to_disease_abv(dge_code) == 'ad' else '.tsv')
-    return os.path.join(dge_base_path, dge_code, file)
+    ext = '.csv' if dataset_to_disease_abv(dge_code) == 'ad' else '.tsv'
+    return os.path.join(dge_base_path, dge_code, 'DifferentialExpression' + ext)
 
 
 def targets_file(disease):
-    return os.path.join(targets_base_path, disease, 'ot_entrez.txt')
+    return os.path.join(targets_base_path, disease, 'ot_entrez_missing.txt')
 
 
 def get_bel_results(dataset) -> (pd.DataFrame, pd.DataFrame):
@@ -124,12 +108,12 @@ def get_bel_results(dataset) -> (pd.DataFrame, pd.DataFrame):
         max_adj_p=max_padj,
         max_log2_fold_change=max_log2_fold_change,
         min_log2_fold_change=min_log2_fold_change,
-        # disease_associations_path=phewas_path  TODO Convert OpenBEL graph to entrez
-        disease_associations_path=os.path.join(DATA_BASE_DIR, 'phewas_catalog', 'phewas_symbol.txt')
     )
     logger.info(f'Nodes {len(network.graph.nodes)}')
-    # targets = parse_gene_list(targets_file(dataset_disease[dataset]), network) TODO Convert OpenBEL graph to entrez
-    targets = parse_gene_list(os.path.join(targets_base_path, dataset_to_disease_abv(dataset), 'ot_symbol.txt'), network)
+    targets = parse_gene_list(
+        os.path.join(targets_base_path, dataset_to_disease_abv(dataset), 'ot_symbol.txt'),
+        network
+    )
     logger.debug(f'Number of targets being used for the network: {len(targets)}')
 
     write_gat2vec_input_files(
@@ -172,7 +156,6 @@ def get_ppi_results(ppi_graph_path: str, dataset: str) -> pd.DataFrame:
         min_log2_fold_change=min_log2_fold_change,
         ppi_edge_min_confidence=ppi_edge_min_confidence,
         current_disease_ids_path='',
-        disease_associations_path=phewas_path,
     )
 
     logger.info(f'Nodes {len(network.graph.vs)}')
@@ -199,8 +182,8 @@ def get_ppi_results(ppi_graph_path: str, dataset: str) -> pd.DataFrame:
 
 def main():
     """ """
-    for key, datasets in DGE_DATASETS.items():
-        results = pd.DataFrame()
+    results = pd.DataFrame()
+    for datasets in DGE_DATASETS.values():
         for ds in datasets:
             # OpenBEL
             if ds in AD_DGE_DATASETS:
@@ -215,12 +198,13 @@ def main():
             for tissue_file in hb_ppi[ds]:
                 part_df = get_ppi_results(os.path.join(tissue_base_path, tissue_file), ds)
                 results = results.append(part_df, ignore_index=True)
-        results.to_csv(os.path.join(g2v_path, f'results_df_{key}.tsv'), sep='\t')
+    results.to_csv(os.path.join(g2v_path, f'results_df.tsv'), sep='\t')
 
-        # Prepare results
-        for metric in ['auc', 'aps']:
+    # Prepare results
+    for metric in ['auc', 'aps']:
+        for key, datasets in DGE_DATASETS.items():
             fig = sns.boxplot(
-                data=results,
+                data=results[results['dge'].isin(datasets)],
                 x='dge',
                 y=metric,
                 hue='ds'

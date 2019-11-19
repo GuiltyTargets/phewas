@@ -121,21 +121,13 @@ def main():
     results = pd.DataFrame()
     for key, dataset in DGE_DATASETS.items():
         for ds in dataset:
-            # Weighted
-            part_df = get_ppi_results(
-                string_graph_path,
-                ds,
-                evaluation='nested_cv',
-                phewas=phewas_path
-            )
-            results = results.append(part_df, ignore_index=True)
-            # Unweighted
-            part_df = get_ppi_results(
-                string_graph_path,
-                ds,
-                evaluation='nested_cv'
-            )
-            results = results.append(part_df, ignore_index=True)
+            for phewas in [None, phewas_path]:
+                part_df = get_ppi_results(
+                    string_graph_path,
+                    ds,
+                    phewas=phewas
+                )
+                results = results.append(part_df, ignore_index=True)
     results.to_csv(os.path.join(g2v_path, f'results_df.tsv'), sep='\t')
     # Prepare results
 
@@ -148,7 +140,7 @@ def main():
                 hue='eval'
             ).get_figure()
             fig.suptitle('Analysis of phenotype association use.')
-            fig.savefig(f'comp0_{key}_{metric}.png')
+            fig.savefig(f'comp2_{key}_{metric}.png')
             plt.close()
 
 

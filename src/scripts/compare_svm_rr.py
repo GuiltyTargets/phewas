@@ -14,7 +14,7 @@ import seaborn as sns
 
 from guiltytargets.pipeline import rank_targets, write_gat2vec_input_files
 from guiltytargets.ppi_network_annotation import generate_ppi_network, parse_dge
-from guiltytargets.ppi_network_annotation.parsers import parse_gene_list
+from guiltytargets.ppi_network_annotation.parsers import parse_association_scores, parse_gene_list
 from guiltytargets_phewas.utils import timed_main_run
 from guiltytargets_phewas.constants import *
 
@@ -42,7 +42,7 @@ g2v_path = os.path.join(DATA_BASE_DIR, 'gat2vec_files', 'part2')
 phewas_path = os.path.join(DATA_BASE_DIR, 'phewas_catalog', 'phewas_entrez.txt')
 string_graph_path = os.path.join(string_base_path, 'string_entrez.edgelist')
 
-min_log2_fold_change, max_log2_fold_change = -1 * lfc_cutoff, lfc_cutoff
+max_log2_fold_change, min_log2_fold_change = -1 * lfc_cutoff, lfc_cutoff
 
 ev_methods = ['cv', 'nested_cv', 'nested_svm']
 
@@ -61,7 +61,13 @@ def targets_file(disease):
     return os.path.join(targets_base_path, disease, 'ot_entrez.txt')
 
 
-def get_ppi_results(ppi_graph_path: str, dataset: str, evaluation: str = 'cv') -> pd.DataFrame:
+def get_ppi_results(
+    ppi_graph_path: str,
+        dataset: str,
+        evaluation: str = 'cv',
+        assoc_path: str = None,
+        phewas: str = None
+) -> pd.DataFrame:
     dge_params = dge_params_ad if dataset in AD_DGE_DATASETS else dge_params_dis
     gene_list = parse_dge(
         dge_path=dge_file(dataset),
@@ -79,17 +85,19 @@ def get_ppi_results(ppi_graph_path: str, dataset: str, evaluation: str = 'cv') -
         min_log2_fold_change=min_log2_fold_change,
         ppi_edge_min_confidence=ppi_edge_min_confidence,
         current_disease_ids_path='',
-        disease_associations_path=phewas_path,
+        disease_associations_path=phewas,
     )
 
     logger.info(f'Nodes {len(network.graph.vs)}')
     targets = parse_gene_list(targets_file(dataset_to_disease_abv(dataset)), network)
+    assoc_score = assoc_path and parse_association_scores(assoc_path)
     logger.debug(f'Number of targets being used for the network: {len(targets)}')
 
     write_gat2vec_input_files(
         network=network,
         targets=targets,
         home_dir=g2v_path,
+        assoc_score=assoc_score,
     )
     metrics_df, _ = rank_targets(
         directory=g2v_path,
@@ -110,11 +118,11 @@ def main():
     for datasets in DGE_DATASETS.values():
         for ds in datasets:
             for ev_method in ev_methods:
-                part_df = get_ppi_results(string_graph_path, ds, evaluation=ev_method)
+                part_df = get_ppi_results(string_graph_path, ds, evaluation=ev_method, phewas=phewas_path)
                 results = results.append(part_df, ignore_index=True)
+    results.to_csv(os.path.join(g2v_path, f'results_df.tsv'), sep='\t')
 
     # Prepare results
-    results.to_csv(os.path.join(g2v_path, f'results_df.tsv'), sep='\t')
     for metric in ['auc', 'aps']:
         for key, datasets in DGE_DATASETS.items():
             fig = sns.boxplot(
@@ -124,7 +132,7 @@ def main():
                 hue='eval'
             ).get_figure()
             fig.suptitle("Classification comparison")
-            fig.savefig(f'comp2_{metric}_{key}.png')  # AUC non-AD and AD
+            fig.savefig(f'comp3_{metric}_{key}.png')  # AUC non-AD and AD
             plt.close()
 
 

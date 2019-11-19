@@ -43,7 +43,7 @@ g2v_path = os.path.join(DATA_BASE_DIR, 'gat2vec_files', 'part3')
 phewas_path = os.path.join(DATA_BASE_DIR, 'phewas_catalog', 'phewas_entrez.txt')
 string_graph_path = os.path.join(string_base_path, 'string_entrez.edgelist')
 
-min_log2_fold_change, max_log2_fold_change = -1 * lfc_cutoff, lfc_cutoff
+max_log2_fold_change, min_log2_fold_change = -1 * lfc_cutoff, lfc_cutoff
 
 
 # TODO Move these functions to a common file to be used by the scripts.
@@ -60,25 +60,26 @@ def assoc_file(disease):
 
 
 def dge_file(dge_code: str) -> str:
-    file = 'DifferentialExpression' + ('.csv' if dataset_to_disease_abv(dge_code) == 'ad' else '.tsv')
-    return os.path.join(dge_base_path, dge_code, file)
+    ext = '.csv' if dataset_to_disease_abv(dge_code) == 'ad' else '.tsv'
+    return os.path.join(dge_base_path, dge_code, 'DifferentialExpression' + ext)
 
 
-disease_efo_dict = {
+"""disease_efo_dict = {
     'ad': 'EFO_0000249',
     'hc': 'EFO_0000182',
     'aml': 'EFO_0000222',
     'ipf': 'EFO_0000768',
     'lc': 'EFO_0001422',
     'ms': 'EFO_0003885'
-}
+}"""
 
 
 def get_ppi_results(
     ppi_graph_path: str,
         dataset: str,
         evaluation: str = 'cv',
-        assoc_path: str = None
+        assoc_path: str = None,
+        phewas: str = None
 ) -> pd.DataFrame:
     dge_params = dge_params_ad if dataset in AD_DGE_DATASETS else dge_params_dis
     gene_list = parse_dge(
@@ -97,7 +98,7 @@ def get_ppi_results(
         min_log2_fold_change=min_log2_fold_change,
         ppi_edge_min_confidence=ppi_edge_min_confidence,
         current_disease_ids_path='',
-        disease_associations_path=phewas_path,
+        disease_associations_path=phewas,
     )
 
     logger.info(f'Nodes {len(network.graph.vs)}')
@@ -127,35 +128,31 @@ def get_ppi_results(
 def main():
     """ """
 
-    for key, dataset in DGE_DATASETS.items():
-        results = pd.DataFrame()
-        for ds in dataset:
-            # Weighted
-            part_df = get_ppi_results(
-                string_graph_path,
-                ds,
-                evaluation='nested_cv',
-                assoc_path=assoc_file(dataset_to_disease_abv(ds))
-            )
-            results = results.append(part_df, ignore_index=True)
-            # Unweighted
-            part_df = get_ppi_results(
-                string_graph_path,
-                ds,
-                evaluation='nested_cv'
-            )
-            results = results.append(part_df, ignore_index=True)
-        results.to_csv(os.path.join(g2v_path, f'results_{key}_df.tsv'), sep='\t')
-        # Prepare results
-        for metric in ['auc', 'aps']:
+    results = pd.DataFrame()
+    for datasets in DGE_DATASETS.values():
+        for ds in datasets:
+            for assoc_path in [None, assoc_file(dataset_to_disease_abv(ds))]:
+                part_df = get_ppi_results(
+                    string_graph_path,
+                    ds,
+                    evaluation='nested_cv',
+                    assoc_path=assoc_path,
+                    phewas=phewas_path
+                )
+                results = results.append(part_df, ignore_index=True)
+    results.to_csv(os.path.join(g2v_path, f'results_{key}_df.tsv'), sep='\t')
+
+    # Prepare results
+    for metric in ['auc', 'aps']:
+        for key, datasets in DGE_DATASETS.values():
             fig = sns.boxplot(
-                data=results,
+                data=results[results['dge'].isin(datasets)],
                 x='dge',
                 y=metric,
                 hue='eval'
             ).get_figure()
             fig.suptitle('Comparison of weighting negative samples vs unweighted.')
-            fig.savefig(f'comp3_{key}_{metric}.png')
+            fig.savefig(f'comp4_{key}_{metric}.png')
             plt.close()
 
 
