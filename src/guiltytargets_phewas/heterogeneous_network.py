@@ -12,7 +12,8 @@ from igraph import EdgeSeq, Graph, Vertex
 
 from guiltytargets.gat2vec import gat2vec_paths
 from guiltytargets.ppi_network_annotation.parsers import parse_ppi_graph
-from guiltytargets.ppi_network_annotation.model import AttributeNetwork, Gene, Network
+from guiltytargets.ppi_network_annotation.model import AttributeNetwork, Network
+from .constants import lfc_cutoff
 from .parsers import parse_disease_drug_graph, parse_disease_gene_graph, parse_gene_drug_graph
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,8 @@ class HeterogeneousNetwork(Network):
             infer_disease_target_assoc: bool = False
     ):
         """"""
-        super().__init__(ppi_graph)
+        max_l2fc, min_l2fc = -1 * lfc_cutoff, lfc_cutoff
+        super().__init__(ppi_graph, max_l2fc=max_l2fc, min_l2fc=min_l2fc)
         # count the number of merges for debug reasons
         if logger.getEffectiveLevel() == logging.DEBUG:
             drug1 = set(disease_drug_graph.vs.select(self._match_drug)['name'])
