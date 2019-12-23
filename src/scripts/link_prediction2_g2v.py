@@ -8,16 +8,12 @@ from collections import defaultdict
 from copy import deepcopy
 import itertools as itt
 import logging
-from math import exp
 import os
 
-from GAT2VEC.parsers import get_embeddingDF
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
-from sklearn.metrics import average_precision_score, roc_auc_score
 
-from guiltytargets.gat2vec import Gat2Vec, gat2vec_paths
 from guiltytargets.constants import gat2vec_config
 from guiltytargets.ppi_network_annotation import parse_dge
 from guiltytargets_phewas.constants import *
@@ -59,10 +55,6 @@ def dge_file(dge_code: str) -> str:
     file = 'DifferentialExpression' + ('.csv' if dataset_to_disease_abv(dge_code) == 'ad' else '.tsv')
     return os.path.join(dge_base_path, dge_code, file)
 
-
-def calculate_prob(v1: pd.Series, v2: pd.Series) -> float:
-    """Gets the p(u, v), given by the formula below."""
-    return 1. / (1. + exp(- v1.dot(v2)))
 
 disease_identifiers = {
     'ad': 'DOID:10652',
@@ -115,13 +107,18 @@ def main():
                 filter_pleiotropic_targets=True
             )
             # TODO multiprocessing would have been nice
+
+            num_walks = gat2vec_config.num_walks
+            walk_length = gat2vec_config.walk_length
+            dimension = gat2vec_config.dimension
+            window_size = gat2vec_config.window_size
             for i in range(10):
                 auc, aps = predict_links(
                     g2v_path,
-                    gat2vec_config.num_walks,
-                    gat2vec_config.walk_length,
-                    gat2vec_config.dimension,
-                    gat2vec_config.window_size,
+                    num_walks,
+                    walk_length,
+                    dimension,
+                    window_size
                 )
                 logger.debug(f'tr: {i}\t{round(auc, 3)}\t{round(aps, 3)}')
                 results_dict['tr'].append(i)

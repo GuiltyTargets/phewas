@@ -13,8 +13,8 @@ from igraph import EdgeSeq, Graph, Vertex
 from guiltytargets.gat2vec import gat2vec_paths
 from guiltytargets.ppi_network_annotation.parsers import parse_ppi_graph
 from guiltytargets.ppi_network_annotation.model import AttributeNetwork, Network
-from .constants import lfc_cutoff
-from .parsers import parse_disease_drug_graph, parse_disease_gene_graph, parse_gene_drug_graph
+from guiltytargets_phewas.constants import lfc_cutoff
+from guiltytargets_phewas.parsers import parse_disease_drug_graph, parse_disease_gene_graph, parse_gene_drug_graph
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
