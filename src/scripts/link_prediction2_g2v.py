@@ -8,7 +8,10 @@ from collections import defaultdict
 from copy import deepcopy
 import itertools as itt
 import logging
+import multiprocessing as mp
 import os
+from time import time
+from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -66,6 +69,32 @@ disease_identifiers = {
 }
 
 
+def mp_predict_links(
+        num_walks: int,
+        walk_length: int,
+        dimension: int,
+        window_size: int
+) -> List[Tuple[float, float]]:
+    pool = mp.Pool(mp.cpu_count())
+    results_iter = [
+        pool.apply(
+            predict_links,
+            args=(
+                g2v_path,
+                num_walks,
+                walk_length,
+                dimension,
+                window_size
+            )
+        )
+        for _
+        in range(10)
+    ]
+    pool.close()
+    pool.join()
+    return results_iter
+
+
 def main():
     # natural order: disease <-> target <-> chem
     # disease - chem is what is desired
@@ -79,9 +108,6 @@ def main():
         dch_path,
         chg_file
     )
-    # filter pleiotropic genes
-    # add inferred disease gene
-    # use DGE
 
     for use_dge, dataset in itt.product([False, True], AD_DGE_DATASETS + NON_AD_DGE_DATASETS):
         disease_abv = dataset_to_disease_abv(dataset)
@@ -103,33 +129,50 @@ def main():
             h_network.write_gat2vec_input_files(
                 home_dir=g2v_path,
                 disease_id=do_id,
-                use_dge_data=use_dge,
                 filter_pleiotropic_targets=True
             )
-            # TODO multiprocessing would have been nice
 
-            num_walks = gat2vec_config.num_walks
+            # num_walks = gat2vec_config.num_walks
             walk_length = gat2vec_config.walk_length
             dimension = gat2vec_config.dimension
             window_size = gat2vec_config.window_size
-            for i in range(10):
-                auc, aps = predict_links(
-                    g2v_path,
-                    num_walks,
-                    walk_length,
-                    dimension,
-                    window_size
-                )
-                logger.debug(f'tr: {i}\t{round(auc, 3)}\t{round(aps, 3)}')
-                results_dict['tr'].append(i)
-                results_dict['auc'].append(auc)
-                results_dict['aps'].append(aps)
-                results_dict['dge'].append(dataset)
-                results_dict['eval'].append(use_dge)
+
+            param = 'nw'
+            for num_walks in [6, 10, 20, 40, 80]:
+                start = time()
+                lp_results = mp_predict_links(num_walks, walk_length, dimension, window_size)
+
+                extract_results(results_dict, lp_results, dataset, param, use_dge)
+                logger.info(f'Runtime for num_walks = {num_walks}: {time() - start}s')
+            # best result from num_walks
+            continue
+            num_walks = gat2vec_config.num_walks
+
+            param = 'wl'
+            for walk_length in [20, 40, 80, 120, 160]:
+                lp_results = mp_predict_links(num_walks, walk_length, dimension, window_size)
+
+                extract_results(results_dict, lp_results, dataset, param, use_dge)
+            # best result from num_walks
+            walk_length = gat2vec_config.walk_length
+
+            param = 'ws'
+            for window_size in [3, 5, 7, 10, 20, 40]:
+                lp_results = mp_predict_links(num_walks, walk_length, dimension, window_size)
+
+                extract_results(results_dict, lp_results, dataset, param, use_dge)
+            # best result from num_walks
+            window_size = gat2vec_config.window_size
+
+            param = 'd'
+            for dimension in [32, 64, 128, 256]:
+                lp_results = mp_predict_links(num_walks, walk_length, dimension, window_size)
+
+                extract_results(results_dict, lp_results, dataset, param, use_dge)
         except ValueError:
             logger.error(f'Dataset {dataset} ({do_id}) not found in the graph.')
-    results = pd.DataFrame(results_dict)
-    results.to_csv(os.path.join(g2v_path, 'results_df.tsv'), sep='\t')
+
+    pd.DataFrame(results_dict).to_csv(os.path.join(g2v_path, 'results_df.tsv'), sep='\t')
 
     for metric in ['auc', 'aps']:
         for key, datasets in DGE_DATASETS.items():
@@ -139,11 +182,21 @@ def main():
                 y='auc',
                 hue='eval'
             ).get_figure()
-            fig.suptitle('Link Prediction.')
-            fig.savefig(f'comp7_{key}_{metric}.png')
+            fig.suptitle('gat2vec optimization for link prediction.')
+            fig.savefig(f'comp8_{key}_{metric}.png')
             plt.close()
 
-        print("done")
+    print("done")
+
+
+def extract_results(results_dict, lp_results, dataset, param, use_dge):
+    for i, (auc, aps) in enumerate(lp_results):
+        results_dict['tr'].append(i)
+        results_dict['auc'].append(auc)
+        results_dict['aps'].append(aps)
+        results_dict['dge'].append(dataset)
+        results_dict['eval'].append(use_dge)
+        results_dict['param'].append(param)
 
 
 if __name__ == "__main__":
