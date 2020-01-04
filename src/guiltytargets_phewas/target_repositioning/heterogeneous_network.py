@@ -6,9 +6,11 @@ from collections import defaultdict
 import logging
 import re
 import sys
-from typing import Set
+from typing import Any, Generator, List, Optional, Set
 
 from igraph import EdgeSeq, Graph, Vertex
+import pandas as pd
+from sklearn.model_selection import StratifiedKFold
 
 from guiltytargets.gat2vec import gat2vec_paths
 from guiltytargets.ppi_network_annotation.parsers import parse_ppi_graph
@@ -126,11 +128,61 @@ class HeterogeneousNetwork(Network):
             filter_pleiotropic_targets: bool = False
     ):
         """"""
-        self.write_adj_list(gat2vec_paths.get_adjlist_path(home_dir, "graph"), disease_id)
+        self.write_adj_list(
+            path=gat2vec_paths.get_adjlist_path(home_dir, "graph"),
+            ignore_disease=disease_id
+        )
         attrib_network = self.get_attribute_network(use_dge_data)
         attrib_network.write_attribute_adj_list(gat2vec_paths.get_adjlist_path(home_dir, "na"))
         labeled_network = self.get_labeled_network(filter_pleiotropic_targets)
         labeled_network.write_index_labels(disease_id, gat2vec_paths.get_labels_path(home_dir))
+
+    def write_gat2vec_cv_split(
+            self,
+            home_dir: str,
+            disease_id: str,
+            use_dge_data: bool = True,
+            filter_pleiotropic_targets: bool = True,
+            n_splits: int = 5
+    ) -> Generator[Any, None, None]:
+        """"""
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True)
+
+        attribute_network = self.get_attribute_network(use_dge_data)
+        attribute_network.write_attribute_adj_list(gat2vec_paths.get_adjlist_path(home_dir, "na"))
+        labeled_network = self.get_labeled_network(filter_pleiotropic_targets)
+        labels_dict = labeled_network.get_targets_index_labels(disease_id)
+        logger.debug(f'Total vertices: {len(self.graph.vs)}')
+        logger.debug(f'Gene vertices: {len(self.graph.vs.select(HeterogeneousNetwork.is_gene))}')
+        logger.debug(f'True: {sum(1 for x in labels_dict.values() if x)}')
+        logger.debug(f'False: {sum(1 for x in labels_dict.values() if x==0)}')
+
+        df = pd.DataFrame(
+            data=[
+                (gene_vertex, label)
+                for gene_vertex, label
+                in labels_dict.items()
+            ],
+            columns=['vertex_id', 'labels']
+        )
+
+        for _, test_idx in skf.split(df.loc[:, 'vertex_id'], df.loc[:, 'labels']):
+            logger.debug(f'Test size: {len(test_idx)}')
+            cv_labels_dict = {
+                row.vertex_id: row.labels for
+                row in
+                df.iloc[test_idx].itertuples(index=False)
+            }
+            targets_for_prediction = self.graph.vs.select(cv_labels_dict.keys())['name']
+            logger.debug(f'Number of targets for prediction: {len(targets_for_prediction)}')
+            logger.debug(f'Sample:')
+            logger.debug(targets_for_prediction[:30])
+            self.write_adj_list(
+                path=gat2vec_paths.get_adjlist_path(home_dir, "graph"),
+                ignore_targets=targets_for_prediction,
+                ignore_disease=disease_id,
+            )
+            yield cv_labels_dict
 
     def _set_default_vertex_attributes(self) -> None:
         """Assign default values on attributes to all vertices."""
@@ -176,7 +228,7 @@ class HeterogeneousNetwork(Network):
         """Tests if a vertex name matches the regular expression for disease ids."""
         try:
             disease_regex.match(v.attributes()["name"])
-        except TypeError as e:
+        except TypeError:
             print(v.attributes()["name"])
             print(type(v.attributes()["name"]))
             sys.exit()
@@ -191,40 +243,71 @@ class HeterogeneousNetwork(Network):
         """All the edges between a disease and a gene."""
         genes = self.graph.vs.select(self.is_gene).indices
         if from_disease:
-            disease = [self.graph.vs.find(name_eq=from_disease).index]
+            disease = [self.get_index_for_disease(from_disease)]
         else:
             disease = self.graph.vs.select(self.is_disease).indices
         return self.graph.es.select(_between=(genes, disease))
 
+    def write_adj_list(
+            self,
+            path: str,
+            ignore_targets: Optional[List[str]] = None,
+            ignore_disease: str = None,
+    ) -> None:
+        """Saves the graph as an adjacency list file. May choose to ignore edges from a disease to all targets, from
+        a disease to a list of targets or from all diseases to
+
+        :param path: Path where the file will be writen.
+        :param ignore_targets: A list of targets to be ignored. Ignored if no disease is specified.
+        :param ignore_disease: Specify a disease name to have all edges between its respective node and the
+         targets ignored. Use None if no disease is to be ignored.
+        :return:
+        """
+        if ignore_targets and ignore_disease:
+            full_graph = self.get_full_graph()
+            disease_idx = full_graph.vs.find(name_eq=ignore_disease).index
+            genes = full_graph.vs.select(name_in=ignore_targets).indices
+            to_remove = self.graph.es.select(_between=(genes, [disease_idx]))
+            full_graph.delete_edges(to_remove)
+            assert disease_idx == full_graph.vs.find(name_eq=ignore_disease).index, 'The index of the disease changed!'
+            adj_list = full_graph.get_adjlist()
+        else:
+            adj_list = self.get_full_graph(ignore_disease).get_adjlist()
+        with open(path, mode="w") as file:
+            for i, line in enumerate(adj_list):
+                print(i, *line, file=file)
+        """import os
+from guiltytargets_phewas.target_repositioning  import generate_heterogeneous_network
+base = r'/home/bit/lacerda/data/'
+ppi = os.path.join(base, 'STRING', 'string_entrez.edgelist')
+dg = os.path.join(base, 'SNAP', 'DG-AssocMiner_miner-disease-gene.tsv.gz')
+dc = os.path.join(base, 'SNAP', 'DCh-Miner_miner-disease-chemical.tsv.gz')
+gc = os.path.join(base, 'SNAP', 'ChG-Miner_miner-chem-gene.tsv.gz')
+net = generate_heterogeneous_network(ppi, dg, dc, gc, True)
+net.write_adj_list('sai.txt', ignore_disease='DOID:2377', ignore_targets=['3575'])
+net.write_adj_list('sai.txt', ignore_disease='DOID:2377')
+len(list(net.get_full_graph('DOID:2377').es))
+with open('sai.txt') as f:
+   print(len(f.read().splitlines()))
+
+
+# a7806244
+# b7805077
+"""
+
     def get_full_graph(self, ignore_disease_gene: str = None) -> Graph:
-        if ignore_disease_gene == 'ALL':
+        """Creates a copy of the graph. If a disease is specified, ignore the edges between all targets to this disease.
+
+        :param ignore_disease_gene: The description of a disease to be ignored.
+        :return: A copy of the graph.
+        """
+        if ignore_disease_gene:
             graph_copy = self.graph.copy()
-            ignored_edges = self.get_disease_gene_assoc()
-            graph_copy.delete_edges(ignored_edges)
-            return graph_copy
-        elif ignore_disease_gene:
-            graph_copy = self.graph.copy()
-            ignored_edges = self.get_disease_gene_assoc()
+            ignored_edges = self.get_disease_gene_assoc(ignore_disease_gene)
             graph_copy.delete_edges(ignored_edges)
             return graph_copy
         else:
-            return self.graph
-
-    def write_adj_list_2(self, path: str, ignore_edges_from_disease: str = None):
-        """Ignoring all disease gene associations"""
-        adj_list = self.get_full_graph(ignore_edges_from_disease).get_adjlist()
-
-        with open(path, mode="w") as file:
-            for i, line in enumerate(adj_list):
-                print(i, *line, file=file)
-
-    def write_adj_list(self, path: str, ignore_edges_from_disease: str = None):
-        """"""
-        adj_list = self.get_full_graph(ignore_edges_from_disease).get_adjlist()
-
-        with open(path, mode="w") as file:
-            for i, line in enumerate(adj_list):
-                print(i, *line, file=file)
+            return self.graph.copy()
 
     def _write_drug_genes_list(self, path: str):
         """Creates the disease gene association file as an edgelist file."""
@@ -299,6 +382,10 @@ class HeterogeneousNetwork(Network):
         ]
         self.graph.add_edges(new_e_list)
 
+    def get_index_for_disease(self, disease):
+        """"""
+        return self.graph.vs.find(name_eq=disease).index
+
 
 class HeterogenousAttributeGenerator(AttributeNetwork):
     """"""
@@ -339,16 +426,19 @@ class HeterogeneousLabelGenerator:
         :return:
         """
         disease_idx = self.network.graph.vs.find(name_eq=disease).index
-        
-        label_mappings = self._get_index_labels(disease_idx)
+
+        label_mappings = self.get_targets_index_labels(disease)
         
         with open(output_path, "w") as file:
             for k, v in label_mappings.items():
                 print(disease_idx, k, v, sep='\t', file=file)
 
-    def _get_index_labels(self, from_vertex):
+    def get_targets_index_labels(self, from_disease):
         """Get the labels(connected/not connected) mapped to indices. """
-        neighbors_ind = self.network.graph.neighbors(from_vertex)
+        disease_idx = self.network.get_index_for_disease(from_disease)
+        # disease_idx = self.network.graph.vs.find(name_eq=from_disease).index
+
+        neighbors_ind = self.network.graph.neighbors(disease_idx)
         neighbors_names = self.network.graph.vs(neighbors_ind)['name']
 
         genes = self.network.graph.vs.select(HeterogeneousNetwork.is_gene)
