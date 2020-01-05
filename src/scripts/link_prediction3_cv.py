@@ -81,6 +81,7 @@ def extract_results(results_dict, lp_results, dataset, evaluation):
 def predict_links_cv(
         network,
         dataset,
+        use_dge,
         num_walks,
         walk_length,
         dimension,
@@ -91,9 +92,10 @@ def predict_links_cv(
     do_id = disease_identifiers[disease_abv]
     for i in range(10):
         for cv_labels in network.write_gat2vec_cv_split(
-                home_dir=g2v_path,
-                disease_id=do_id,
-                filter_pleiotropic_targets=True
+            home_dir=g2v_path,
+            disease_id=do_id,
+            filter_pleiotropic_targets=True,
+            use_dge_data=use_dge
         ):
             g2v = Gat2Vec(
                 input_dir=g2v_path,
@@ -127,12 +129,12 @@ def predict_links_cv(
             aps = average_precision_score(labels['label'], labels['prob'])
             results['TR'].append(i)
             results['dge'].append(dataset)
-            results['eval'].append('5fold')
+            results['eval'].append(use_dge)
             results['auc'].append(auc)
             results['aps'].append(aps)
-
+        logger.debug(results)
     df = pd.DataFrame(results)
-    return df.groupby(axis=0, by="TR").mean()
+    return df.groupby(by=['TR', 'dge', 'eval']).mean().reset_index()
 
 
 def main():
@@ -149,7 +151,7 @@ def main():
         chg_file
     )
 
-    for use_dge, dataset in itt.product([False, True], ['Mayo_CTX']):
+    for use_dge, dataset in itt.product([False, True], AD_DGE_DATASETS + NON_AD_DGE_DATASETS):
         disease_abv = dataset_to_disease_abv(dataset)
         dge_params = dge_params_ad if disease_abv == 'ad' else dge_params_dis
         do_id = disease_identifiers[disease_abv]
@@ -175,6 +177,7 @@ def main():
 
             metrics_df = predict_links_cv(
                 h_network_ds,
+                use_dge=use_dge,
                 dataset=dataset,
                 num_walks=num_walks,
                 walk_length=walk_length,
