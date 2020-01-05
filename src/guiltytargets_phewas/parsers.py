@@ -23,7 +23,7 @@ def parse_disease_gene_graph(path: str) -> Graph:
     logger.info("Loading Disease Gene Graph.")
     DISEASE_COLUMN = '# Disease ID'
     GENE_COLUMN = 'Gene ID'
-    data = pd.read_csv(path, sep='\t', dtype=str)
+    data = pd.read_csv(path, sep='\t', dtype=str, header=0)
     data[DISEASE_COLUMN] = [
         'UMLS_CUI:' + disease
         for disease
@@ -49,7 +49,7 @@ def parse_disease_drug_graph(path: str) -> Graph:
     logger.info("Loading Disease Drug Graph.")
     DISEASE_COLUMN = '# Disease(MESH)'
     DRUG_COLUMN = 'Chemical'
-    data = pd.read_csv(path, sep='\t', dtype=str)
+    data = pd.read_csv(path, sep='\t', dtype=str, header=0)
     doid_conveter = get_converter_to_disease_ontology()
     data[DISEASE_COLUMN] = [
         doid_conveter[disease] if disease in doid_conveter else disease
@@ -70,7 +70,7 @@ def parse_gene_drug_graph(path: str) -> Graph:
     logger.info("Loading Drug Gene Graph.")
     DRUG_COLUMN = '#Drug'
     GENE_COLUMN = 'Gene'
-    data = pd.read_csv(path, sep='\t', dtype=str)
+    data = pd.read_csv(path, sep='\t', dtype=str, header=0)
     columns = [GENE_COLUMN, DRUG_COLUMN]
 
     uniprot_ids = set(data[GENE_COLUMN])
