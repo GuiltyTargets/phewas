@@ -93,13 +93,13 @@ def mp_predict_links(
     return results_iter
 
 
-def extract_results(results_dict, lp_results, dataset, param, use_dge):
+def extract_results(results_dict, lp_results, dataset, param, evaluation):
     for i, (auc, aps) in enumerate(lp_results):
         results_dict['tr'].append(i)
         results_dict['auc'].append(auc)
         results_dict['aps'].append(aps)
         results_dict['dge'].append(dataset)
-        results_dict['eval'].append(use_dge)
+        results_dict['eval'].append(evaluation)
         results_dict['param'].append(param)
 
 
@@ -117,7 +117,7 @@ def main():
         chg_file
     )
 
-    for use_dge, dataset in itt.product([False, True], ['Mayo_CBE']):
+    for use_dge, dataset in itt.product([True], AD_DGE_DATASETS + NON_AD_DGE_DATASETS):
         disease_abv = dataset_to_disease_abv(dataset)
         do_id = disease_identifiers[disease_abv]
         dge_params = dge_params_ad if disease_abv == 'ad' else dge_params_dis
@@ -150,37 +150,44 @@ def main():
                 start = time()
                 lp_results = mp_predict_links(num_walks, walk_length, dimension, window_size)
 
-                extract_results(results_dict, lp_results, dataset, param, use_dge)
+                extract_results(results_dict, lp_results, dataset, param, num_walks)
                 logger.info(f'Runtime for num_walks = {num_walks}: {time() - start}s')
             # best result from num_walks
             num_walks = gat2vec_config.num_walks
 
             param = 'wl'
             for walk_length in [20, 40, 80, 120, 160]:
+                start = time()
                 lp_results = mp_predict_links(num_walks, walk_length, dimension, window_size)
 
-                extract_results(results_dict, lp_results, dataset, param, use_dge)
+                extract_results(results_dict, lp_results, dataset, param, walk_length)
+                logger.info(f'Runtime for walk_length = {walk_length}: {time() - start}s')
             # best result from num_walks
             walk_length = gat2vec_config.walk_length
 
             param = 'ws'
             for window_size in [3, 5, 7, 10, 20, 40]:
+                start = time()
                 lp_results = mp_predict_links(num_walks, walk_length, dimension, window_size)
 
-                extract_results(results_dict, lp_results, dataset, param, use_dge)
+                extract_results(results_dict, lp_results, dataset, param, window_size)
+                logger.info(f'Runtime for window_size = {window_size}: {time() - start}s')
             # best result from num_walks
             window_size = gat2vec_config.window_size
 
             param = 'd'
             for dimension in [32, 64, 128, 256]:
+                start = time()
                 lp_results = mp_predict_links(num_walks, walk_length, dimension, window_size)
 
-                extract_results(results_dict, lp_results, dataset, param, use_dge)
+                extract_results(results_dict, lp_results, dataset, param, dimension)
+                logger.info(f'Runtime for dimension = {dimension}: {time() - start}s')
         except ValueError:
             logger.error(f'Dataset {dataset} ({do_id}) not found in the graph.')
 
-    results = pd.DataFrame(results_dict)
-    results.to_csv(os.path.join(g2v_path, 'results_df.tsv'), sep='\t')
+        results = pd.DataFrame(results_dict)
+        # backup intermediate results in each iteration.
+        results.to_csv(os.path.join(g2v_path, 'results_df_nonad.tsv'), sep='\t')
 
     print("done")
 
