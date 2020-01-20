@@ -72,6 +72,7 @@ def main():
     """ """
     results = defaultdict(list)
     for disease_abv in ['hc', 'lc', 'aml', 'ipf', 'ms', 'ad']:
+        # disease_abv =
         assoc_path = assoc_file(disease_abv)
         assoc_scores = parse_association_scores(assoc_path)
 
@@ -90,9 +91,9 @@ def main():
                 in assoc_scores.items()
             ]
         )
-        results['diease'].append(disease_abv)
-        results['auc'].append(average_precision_score(df[2], df[1]))
-        results['aps'].append(roc_auc_score(df[2], df[1]))
+        results['dge'].append(disease_abv)
+        results['aps'].append(average_precision_score(df[2], df[1]))
+        results['auc'].append(roc_auc_score(df[2], df[1]))
     pd.DataFrame(results).to_csv(os.path.join(g2v_path, 'ot_target_prediction.tsv'), sep='\t')
 
 

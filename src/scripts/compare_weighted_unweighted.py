@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-"""Compares the weighting of samples using the association score for the  to unweighted approach. Uses gat2vec
-default parameters and logistic regression."""
+"""Compares the down-weighting of negative samples using the association score against the  unweighted approach. Uses
+gat2vec default parameters and logistic regression."""
 
 # part 3
 
@@ -39,8 +39,7 @@ dge_base_path = os.path.join(DATA_BASE_DIR, 'DGE')
 targets_base_path = os.path.join(DATA_BASE_DIR, 'OpenTargets')
 string_base_path =os.path.join(DATA_BASE_DIR, 'STRING')
 
-g2v_path = os.path.join(DATA_BASE_DIR, 'gat2vec_files', 'part3')
-phewas_path = os.path.join(DATA_BASE_DIR, 'phewas_catalog', 'phewas_entrez.txt')
+g2v_path = os.path.join(DATA_BASE_DIR, 'gat2vec_files', 'part4')
 string_graph_path = os.path.join(string_base_path, 'string_entrez.edgelist')
 
 max_log2_fold_change, min_log2_fold_change = -1 * lfc_cutoff, lfc_cutoff
@@ -137,14 +136,13 @@ def main():
                     ds,
                     evaluation='nested_cv',
                     assoc_path=assoc_path,
-                    phewas=phewas_path
                 )
                 results = results.append(part_df, ignore_index=True)
-    results.to_csv(os.path.join(g2v_path, f'results_{key}_df.tsv'), sep='\t')
+    results.to_csv(os.path.join(g2v_path, f'results_df.tsv'), sep='\t')
 
     # Prepare results
     for metric in ['auc', 'aps']:
-        for key, datasets in DGE_DATASETS.values():
+        for key, datasets in DGE_DATASETS.items():
             fig = sns.boxplot(
                 data=results[results['dge'].isin(datasets)],
                 x='dge',
