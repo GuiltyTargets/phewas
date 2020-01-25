@@ -87,6 +87,7 @@ def optimize_g2v_parameters(
         adj_p_header=dge_params['adjp'],
         entrez_delimiter=split_char,
         base_mean_header=dge_params['mean'],
+        csv_separator=';'
     )
     network = generate_ppi_network(
         ppi_graph_path=ppi_graph_path,
@@ -211,19 +212,6 @@ def main():
             )
             results = results.append(part_df, ignore_index=True)
     results.to_csv(os.path.join(g2v_path, f'results_df.tsv'), sep='\t')
-
-    for key, dataset in DGE_DATASETS.items():
-        for analyzed_param in set(results['param']):
-            for metric in ['auc', 'aps']:
-                fig = sns.boxplot(
-                    data=results[results['param'] == analyzed_param],
-                    x='dge',
-                    y=metric,
-                    hue='eval'
-                ).get_figure()
-                fig.suptitle(f'gat2vec hyperparameter optimization: {analyzed_param}.')
-                fig.savefig(f'comp5_{metric}_{analyzed_param}_{key}.png')  # AUC non-AD and AD
-                plt.close()
 
 
 if __name__ == '__main__':

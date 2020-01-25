@@ -69,6 +69,7 @@ def main():
             adj_p_header=adjusted_p_value_name,
             entrez_delimiter=split_char,
             base_mean_header=base_mean_name,
+            csv_separator=';'
         )
 
         dim = len(graph_paths)
