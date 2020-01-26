@@ -76,6 +76,7 @@ def get_ppi_results(
         adj_p_header=dge_params['adjp'],
         entrez_delimiter=split_char,
         base_mean_header=dge_params['mean'],
+        csv_separator=';'
     )
     network = generate_ppi_network(
         ppi_graph_path=ppi_graph_path,

@@ -101,6 +101,7 @@ def get_bel_results(dataset) -> (pd.DataFrame, pd.DataFrame):
         adj_p_header=dge_params['adjp'],
         entrez_delimiter=split_char,
         base_mean_header=dge_params['mean'],
+        csv_separator=';'
     )
     network = generate_bel_network(
         bel_graph_path=bel_files,
