@@ -16,7 +16,9 @@ from guiltytargets.gat2vec import gat2vec_paths
 from guiltytargets.ppi_network_annotation.parsers import parse_ppi_graph
 from guiltytargets.ppi_network_annotation.model import AttributeNetwork, Network
 from guiltytargets_phewas.constants import lfc_cutoff
-from guiltytargets_phewas.parsers import parse_disease_drug_graph, parse_disease_gene_graph, parse_gene_drug_graph
+from guiltytargets_phewas.parsers import (
+    parse_disease_drug_graph, parse_disease_gene_graph, parse_disgenet_edgelist, parse_gene_drug_graph
+)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -82,11 +84,13 @@ class HeterogeneousNetwork(Network):
             disease_gene_graph: Graph,
             disease_drug_graph: Graph,
             gene_drug_graph: Graph,
+            disgenet_path: str = None,
             infer_disease_target_assoc: bool = False
     ):
         """"""
         max_l2fc, min_l2fc = -1 * lfc_cutoff, lfc_cutoff
         super().__init__(ppi_graph, max_l2fc=max_l2fc, min_l2fc=min_l2fc)
+        self.disgenet_path = disgenet_path
         # count the number of merges for debug reasons
         if logger.getEffectiveLevel() == logging.DEBUG:
             drug1 = set(disease_drug_graph.vs.select(self._match_drug)['name'])
@@ -99,10 +103,10 @@ class HeterogeneousNetwork(Network):
             logger.debug(f'Merged genes: {len(merged)}. Disease network: {len(genes1)}. Drug network: {len(genes2)}.')
             diseases1 = set(disease_gene_graph.vs.select(self._match_disease)['name'])
             diseases2 = set(disease_drug_graph.vs.select(self._match_disease)['name'])
-            doid1 = [x for x in diseases1 if x.startswith('DOID:')]
-            logger.debug(f'DOIDs in disease gene: {len(doid1)}')
-            doid2 = [x for x in diseases2 if x.startswith('DOID:')]
-            logger.debug(f'DOIDs in disease drug: {len(doid2)}')
+            doid1 = [x for x in diseases1 if x.startswith('UMLS_CUI:')]
+            logger.debug(f'UMLS_CUIs in disease gene: {len(doid1)}')
+            doid2 = [x for x in diseases2 if x.startswith('UMLS_CUI:')]
+            logger.debug(f'UMLS_CUIs in disease drug: {len(doid2)}')
             merged = diseases1.intersection(diseases2)
             logger.debug(f'Merged diseases: {len(merged)}. Gene network: {len(diseases1)}. '
                          f'Drug network: {len(diseases2)}.')
@@ -128,14 +132,14 @@ class HeterogeneousNetwork(Network):
             filter_pleiotropic_targets: bool = False
     ):
         """"""
-        self.write_adj_list(
-            path=gat2vec_paths.get_adjlist_path(home_dir, "graph"),
-            ignore_disease=disease_id
-        )
         attrib_network = self.get_attribute_network(use_dge_data)
         attrib_network.write_attribute_adj_list(gat2vec_paths.get_adjlist_path(home_dir, "na"))
         labeled_network = self.get_labeled_network(filter_pleiotropic_targets)
         labeled_network.write_index_labels(disease_id, gat2vec_paths.get_labels_path(home_dir))
+        self.write_adj_list(
+            path=gat2vec_paths.get_adjlist_path(home_dir, "graph"),
+            ignore_disease=disease_id
+        )
 
     def write_gat2vec_cv_split(
             self,
@@ -146,6 +150,7 @@ class HeterogeneousNetwork(Network):
             n_splits: int = 5
     ) -> Generator[Any, None, None]:
         """"""
+        # TODO run multiple times in parallel by changing the home_dir for each repetition/split.
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True)
 
         attribute_network = self.get_attribute_network(use_dge_data)
@@ -248,14 +253,20 @@ class HeterogeneousNetwork(Network):
             disease = self.graph.vs.select(self.is_disease).indices
         return self.graph.es.select(_between=(genes, disease))
 
+    def add_disgenet_edges(self, disgenet_path: str):
+        """"""
+        edges = parse_disgenet_edgelist(disgenet_path)
+        logger.debug(f'number of disgenet edges: {len(edges)}')
+        self.graph.add_edges(edges)
+
     def write_adj_list(
             self,
             path: str,
             ignore_targets: Optional[List[str]] = None,
             ignore_disease: str = None,
     ) -> None:
-        """Saves the graph as an adjacency list file. May choose to ignore edges from a disease to all targets, from
-        a disease to a list of targets or from all diseases to
+        """Saves the graph as an adjacency list file. May choose to ignore edges from a disease to all targets or from
+        a disease to a list of targets (for cross validation).
 
         :param path: Path where the file will be writen.
         :param ignore_targets: A list of targets to be ignored. Ignored if no disease is specified.
@@ -264,6 +275,7 @@ class HeterogeneousNetwork(Network):
         :return:
         """
         if ignore_targets and ignore_disease:
+            assert ignore_targets is None, "Should I remove disease drug nodes as well?"
             full_graph = self.get_full_graph()
             disease_idx = full_graph.vs.find(name_eq=ignore_disease).index
             genes = full_graph.vs.select(name_in=ignore_targets).indices
@@ -272,7 +284,10 @@ class HeterogeneousNetwork(Network):
             assert disease_idx == full_graph.vs.find(name_eq=ignore_disease).index, 'The index of the disease changed!'
             adj_list = full_graph.get_adjlist()
         else:
+            logger.debug(f'Edges before filtering: {len(self.graph.es)}')
             adj_list = self.get_full_graph(ignore_disease).get_adjlist()
+        if self.disgenet_path:
+            self.add_disgenet_edges(self.disgenet_path)
         with open(path, mode="w") as file:
             for i, line in enumerate(adj_list):
                 print(i, *line, file=file)
@@ -302,9 +317,16 @@ with open('sai.txt') as f:
         :return: A copy of the graph.
         """
         if ignore_disease_gene:
+            logger.debug(f'Edges before filtering disease: {len(self.graph.es)}')
             graph_copy = self.graph.copy()
-            ignored_edges = self.get_disease_gene_assoc(ignore_disease_gene)
+            # ignored_edges = self.get_disease_gene_assoc(ignore_disease_gene)
+            # ignore all edges from the disease to genes and drugs.
+            d_edge = graph_copy.vs.find(name_eq=ignore_disease_gene).index
+            all_edges = graph_copy.vs.indices
+            ignored_edges = graph_copy.es.select(_between=([d_edge], all_edges))
+            logger.debug(f'Edges to be filtered: {len(ignored_edges)}')
             graph_copy.delete_edges(ignored_edges)
+            logger.debug(f'Edges after filtering: {len(graph_copy.es)}')
             return graph_copy
         else:
             return self.graph.copy()
@@ -428,7 +450,8 @@ class HeterogeneousLabelGenerator:
         disease_idx = self.network.graph.vs.find(name_eq=disease).index
 
         label_mappings = self.get_targets_index_labels(disease)
-        
+        logger.debug(f'positive labels: {sum(1 for x in label_mappings.values() if x)}')
+
         with open(output_path, "w") as file:
             for k, v in label_mappings.items():
                 print(disease_idx, k, v, sep='\t', file=file)
@@ -460,9 +483,11 @@ def generate_heterogeneous_network(
         disease_gene_path: str,
         disease_drug_path: str,
         gene_drug_path: str,
+        disgenet_path: str = None,
         infer_disease_target_assoc: bool = True
 ) -> HeterogeneousNetwork:
     """"""
+    # todo multiprocess
     disease_gene_interactions = parse_disease_gene_graph(disease_gene_path)
     disease_drug_interactions = parse_disease_drug_graph(disease_drug_path)
     gene_drug_interactions = parse_gene_drug_graph(gene_drug_path)
@@ -475,6 +500,7 @@ def generate_heterogeneous_network(
         disease_gene_interactions,
         disease_drug_interactions,
         gene_drug_interactions,
-        infer_disease_target_assoc=infer_disease_target_assoc
+        infer_disease_target_assoc=infer_disease_target_assoc,
+        disgenet_path=disgenet_path
     )
     return network

@@ -249,6 +249,104 @@ def main():
         fig.savefig(os.path.join(results_base_folder, f'compare7_{metric}.png'))  # AUC non-AD and AD
         plt.close()
 
+    subfolder = 'link_prediction'  # Link prediction vs OpenTargets
+    results = get_dataframe(os.path.join(results_base_folder, subfolder))
+    ot_results = pd.read_csv(os.path.join(results_base_folder, 'ot_target_prediction.tsv'), sep='\t')
+    ot_results['dge_relabel'] = [change_labels[x] for x in ot_results['dge']]
+    ot_results['eval'] = 'OpenTargets'
+    ot_results['tr'] = 0
+    ot_results['sort1'] = [
+        dataset_to_disease_abv(x)
+        for x in ot_results['dge']
+    ]
+    results = results[results['eval']]
+    results['eval'] = 'Link Prediction'
+    results = results.append(ot_results, ignore_index=False, sort=True)
+    results = results.sort_values(by=['sort1', 'dge_relabel', 'eval'])
+    # Prepare results
+    for metric in ['auc', 'aps']:
+        bp = sns.boxplot(
+            data=results,
+            x='dge_relabel',
+            y=metric,
+            hue='eval',
+            width=thiner
+        )
+        handle_plot(bp, 0.005, 0.4, 'Method')
+        fig = bp.get_figure()
+        fig.tight_layout()
+        fig.subplots_adjust(left=0.07)
+        fig.set_size_inches(12.8, 4.8)
+        fig.savefig(os.path.join(results_base_folder, f'compare7_vs_ot_{metric}.png'))  # AUC non-AD and AD
+        plt.close()
+
+    subfolder = 'link_prediction2'  # Link 5fcv
+    results = get_dataframe(os.path.join(results_base_folder, subfolder))
+    results = results.sort_values(by=['sort1', 'dge_relabel', 'eval'])
+    relabel_param = {
+        'd': 'Dimension',
+        'wl': 'Walk Length',
+        'nw': 'Number of Walks',
+        'ws': 'Window size'
+    }
+    results['param'] = [
+        relabel_param[x]
+        for x in results['param']
+    ]
+    # Prepare results
+    for metric in ['auc', 'aps']:
+        for analyzed_param in set(results['param']):
+            default_color = sns.color_palette()[0]
+            colors = sns.color_palette("ch:2.5,-.2,dark=.3")
+            # Assign blue to the default g2v param
+            # dim = 128, nw = 10, wl = 80, ws = 5
+            if analyzed_param in ['Dimension', 'Walk Length']:
+                colors[2] = default_color
+            elif analyzed_param in ['Number of Walks', 'Window size']:
+                colors[1] = default_color
+            bp = sns.boxplot(
+                data=results[results['param'] == analyzed_param],
+                x='dge_relabel',
+                y=metric,
+                hue='eval',
+                palette=colors
+            )
+            handle_plot(bp, 0.01, 0.05, analyzed_param, use_ncol=True)
+            fig = bp.get_figure()
+            fig.tight_layout()
+            fig.subplots_adjust(left=0.07)
+            fig.set_size_inches(12.8, 4.8)
+            param = ''.join(analyzed_param.split(' '))
+            fig.savefig(os.path.join(results_base_folder, f'compare7g2v_{metric}_{param}.png'))  # AUC non-AD and AD
+            plt.close()
+
+    subfolder = 'link_prediction3'  # Link prediction vs OpenTargets
+    sns.color_palette("muted")
+    results = get_dataframe(os.path.join(results_base_folder, subfolder))
+    results['dge_relabel'] = [change_labels[x] for x in results['dge']]
+    results['eval'] = [
+        'Yes' if x else 'No'
+        for x
+        in results['eval']
+    ]
+    results = results.sort_values(by=['sort1', 'dge_relabel', 'eval'])
+    # Prepare results
+    for metric in ['auc', 'aps']:
+        bp = sns.boxplot(
+            data=results,
+            x='dge_relabel',
+            y=metric,
+            hue='eval',
+            width=thiner
+        )
+        handle_plot(bp, 0.005, 0.4, 'Use DGE')
+        fig = bp.get_figure()
+        fig.tight_layout()
+        fig.subplots_adjust(left=0.07)
+        fig.set_size_inches(12.8, 4.8)
+        fig.savefig(os.path.join(results_base_folder, f'compare7cv_{metric}.png'))  # AUC non-AD and AD
+        plt.close()
+
 
 if __name__ == '__main__':
     main()

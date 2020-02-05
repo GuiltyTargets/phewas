@@ -4,6 +4,7 @@
 
 import logging
 import os
+from typing import List
 
 from igraph import Graph
 import pandas as pd
@@ -48,9 +49,9 @@ def parse_disease_drug_graph(path: str) -> Graph:
         in data[DISEASE_COLUMN]
     ]
     columns = [DISEASE_COLUMN, DRUG_COLUMN]
-    logger.debug(f"# of diseases UMLS'ed: {len({x for x in data[DISEASE_COLUMN] if x.startswith('DOID:')})}")
-    logger.debug(f"# of not UMLS'ed:      {len({x for x in data[DISEASE_COLUMN] if x.startswith('MESH:')})}")
-    logger.debug(f"# of not UMLS'ed:      {len({x for x in data[DISEASE_COLUMN] if x.startswith('OMIM:')})}")
+    logger.debug(f"# of diseases UMLS'ed: {len({x for x in data[DISEASE_COLUMN] if x.startswith('UMLS_CUI:')})}")
+    logger.debug(f"# of MESH not UMLS'ed:      {len({x for x in data[DISEASE_COLUMN] if x.startswith('MESH:')})}")
+    logger.debug(f"# of OMIM not UMLS'ed:      {len({x for x in data[DISEASE_COLUMN] if x.startswith('OMIM:')})}")
 
     edgelist = [list(edge) for _, edge in data[columns].iterrows()]
     return Graph.TupleList(edges=edgelist, directed=False)
@@ -93,7 +94,7 @@ def bel_graph_loader(from_dir: str) -> BELGraph:
     return union(bel_graphs)
 
 
-def parse_disgenet_graph(path: str) -> Graph:
+def parse_disgenet_edgelist(path: str) -> List[List[str]]:
     """ """
     logger.info("Loading DisGeNET Graph.")
     DISEASE_COLUMN = 'diseaseId'
@@ -104,7 +105,7 @@ def parse_disgenet_graph(path: str) -> Graph:
         for disease
         in data[DISEASE_COLUMN]
     ]
-    symbol_list = set(data[GENE_COLUMN])
+    symbol_list = data[GENE_COLUMN].unique()
     converter = get_converter_to_entrez(symbol_list)
     data[GENE_COLUMN] = [
         converter[x] if x in converter else x
@@ -112,5 +113,4 @@ def parse_disgenet_graph(path: str) -> Graph:
     ]
 
     columns = [DISEASE_COLUMN, GENE_COLUMN]
-    edgelist = [list(edge) for _, edge in data[columns].iterrows()]
-    return Graph.TupleList(edges=edgelist, directed=False)
+    return [list(edge) for _, edge in data[columns].iterrows()]
