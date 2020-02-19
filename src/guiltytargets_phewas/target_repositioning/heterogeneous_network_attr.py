@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 
-"""This module creates the networks required to predict links."""
+"""Disgenet is annotated as attributes."""
 
 from collections import defaultdict
 import logging
 import re
 import sys
-from typing import Any, Generator, List, Optional, Set
+from typing import Any, Dict, Generator, List, Optional, Set
 
 from igraph import EdgeSeq, Graph, Vertex
 import pandas as pd
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
-fh = logging.FileHandler('hetero_network.log')
+fh = logging.FileHandler('hetero_network_att.log')
 fh.setLevel(logging.DEBUG)
 logger.addHandler(ch)
 logger.addHandler(fh)
@@ -132,7 +132,7 @@ class HeterogeneousNetwork(Network):
             filter_pleiotropic_targets: bool = False
     ):
         """"""
-        attrib_network = self.get_attribute_network(use_dge_data)
+        attrib_network = self.get_attribute_network(use_dge_data=use_dge_data, disgenet_as_attr=True)
         attrib_network.write_attribute_adj_list(gat2vec_paths.get_adjlist_path(home_dir, "na"))
         labeled_network = self.get_labeled_network(filter_pleiotropic_targets)
         labeled_network.write_index_labels(disease_id, gat2vec_paths.get_labels_path(home_dir))
@@ -255,10 +255,8 @@ class HeterogeneousNetwork(Network):
 
     @staticmethod
     def add_disgenet_edges(graph, disgenet_path: str):
-        """Add edges between genes and diseases from a DisGeNET graph."""
+        """"""
         edges = parse_disgenet_edgelist(disgenet_path)
-        vs = {node for edge in edges for node in edge}
-        graph.add_vertices(list(vs))
         logger.debug(f'number of disgenet edges: {len(edges)}')
         graph.add_edges(edges)
 
@@ -285,14 +283,9 @@ class HeterogeneousNetwork(Network):
             to_remove = self.graph.es.select(_between=(genes, [disease_idx]))
             full_graph.delete_edges(to_remove)
             assert disease_idx == full_graph.vs.find(name_eq=ignore_disease).index, 'The index of the disease changed!'
-            if self.disgenet_path:
-                self.add_disgenet_edges(self.disgenet_path)
             adj_list = full_graph.get_adjlist()
         else:
-            graph = self.get_full_graph(ignore_disease)
-            if self.disgenet_path:
-                self.add_disgenet_edges(graph, self.disgenet_path)
-            adj_list = graph.get_adjlist()
+            adj_list = self.get_full_graph(ignore_disease).get_adjlist()
         with open(path, mode="w") as file:
             for i, line in enumerate(adj_list):
                 print(i, *line, file=file)
@@ -340,9 +333,12 @@ class HeterogeneousNetwork(Network):
         """Generates labels according to a single disease."""
         return HeterogeneousLabelGenerator(self, filter_pleiotropic_targets=filter_pleiotropic_targets)
 
-    def get_attribute_network(self, use_dge_data: bool = True):
+    def get_attribute_network(self, use_dge_data: bool = True, disgenet_as_attr: bool = True):
         """Generates labels according to a single disease."""
-        return HeterogenousAttributeGenerator(self, use_dge_data)
+        if disgenet_as_attr:
+            return HeterogenousAttributeGeneratorDisgenet(self, use_dge_data)
+        else:
+            return HeterogenousAttributeGenerator(self, use_dge_data)
 
     def find_pleiotropic_genes(self) -> Set[int]:
         """Finds genes that are associated with more than one disease."""
@@ -391,7 +387,7 @@ class HeterogeneousNetwork(Network):
         return self.graph.vs.find(name_eq=disease).index
 
 
-class HeterogenousAttributeGenerator(AttributeNetwork):
+class HeterogenousAttributeGeneratorDisgenet(AttributeNetwork):
     """"""
 
     def __init__(self, network, use_dge_data):
@@ -400,15 +396,19 @@ class HeterogenousAttributeGenerator(AttributeNetwork):
         :param network: A PPI network annotated with differential gene expression and disease association.
         """
         super().__init__(network)
+        self.disgenet_path = network.disgenet_path
         self.use_dge_data = use_dge_data
 
     def get_attribute_mappings(self):
-        """Get a dictionary of mappings between vertices and enumerated attributes. This considers the node types as
-        attributes.
+        """"""
+        logger.debug('checkpoint Bravo')
+        att_mappings = defaultdict(list)
+        att_ind_start = self._add_disgenet_information(att_mappings)
 
-        :return: Dictionary of mappings between vertices and enumerated attributes.
-        """
         if self.use_dge_data:
+            self._add_differential_expression_attributes(att_ind_start, att_mappings)
+            return att_mappings
+        else:
             att_ind_start = len(self.graph.vs)
             att_mappings = {
                 x: [att_ind_start + 1]
@@ -416,11 +416,35 @@ class HeterogenousAttributeGenerator(AttributeNetwork):
                 in self.graph.vs.indices
             }
             return att_mappings
-        else:
-            return super().get_attribute_mappings()
+
+    def _add_disgenet_information(self, mappings: Dict[str, str]) -> int:
+        att_ind_start = len(self.graph.vs)
+        edges = parse_disgenet_edgelist(self.disgenet_path)
+        disease_indices = {
+            disease: self.graph.vs.find(name_eq=disease).index
+            for disease, gene
+            in edges
+            if disease in self.graph.vs['name']
+        }
+        logger.debug(f'disease {list(disease_indices.items())[:10]}')
+        unique_genes = set(
+            gene
+            for disease, gene
+            in edges
+        )
+        gene_indices = {
+            gene: i
+            for i, gene
+            in enumerate(unique_genes, start=att_ind_start)
+        }
+        logger.debug(f'genes {list(gene_indices.items())[:10]}')
+        for disease, gene in edges:
+            if disease in disease_indices:
+                mappings[disease_indices[disease]].append(gene_indices[gene])
+        return att_ind_start + len(unique_genes)
 
 
-class DisgenetAttributeGenerator(AttributeNetwork):
+class HeterogenousAttributeGenerator(AttributeNetwork):
     """"""
 
     def get_attribute_mappings(self):
@@ -430,11 +454,11 @@ class DisgenetAttributeGenerator(AttributeNetwork):
         :return: Dictionary of mappings between vertices and enumerated attributes.
         """
         att_ind_start = len(self.graph.vs)
-        att_mappings = defaultdict(list)
-        att_ind_end = self._add_differential_expression_attributes(att_ind_start, att_mappings)
-        if "associated_diseases" in self.graph.vs.attributes():
-            self._add_disease_association_attributes(att_ind_end, att_mappings)
-
+        att_mappings = {
+            x: [att_ind_start + 1]
+            for x
+            in self.graph.vs.indices
+        }
         return att_mappings
 
 

@@ -86,7 +86,7 @@ def get_converter_to_disease_ontology() -> Dict[str, str]:
 
 def get_disgenet_umls_converter() -> Dict[str, str]:
     """"""
-    vocabularies = {
+    used_vocabularies = {
         'ICD9CM': 'ICD9:',
         'DO': 'DOID:',
         'EFO': 'EFO_',
@@ -95,9 +95,9 @@ def get_disgenet_umls_converter() -> Dict[str, str]:
     }
     disease_mappings = os.path.join(DATA_BASE_DIR, 'disgenet', 'disease_mappings.tsv.gz')  # TODO downloads/paths
     data = pd.read_csv(disease_mappings, sep='|', dtype=str, header=0)
-    data = data[data['vocabulary'].isin(vocabularies)]
+    data = data[data['vocabulary'].isin(used_vocabularies)]
     result = {
-        f'{vocabularies[row.vocabulary]}{row.code}': f'UMLS_CUI:{row.diseaseId}'
+        f'{used_vocabularies[row.vocabulary]}{row.code}': f'UMLS_CUI:{row.diseaseId}'
         for row
         in data.itertuples(index=False)
     }
